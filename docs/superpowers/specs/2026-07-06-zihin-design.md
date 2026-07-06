@@ -124,7 +124,7 @@ SWIFT sheet §5 şeması esas alınır (item, item_fts, tag, item_tag, space, me
 | NER | `NLTagger(.nameType)` | kişi/yer/kurum → etiket |
 | Keyword | RAKE (degree/freq) | TR stopword seti ~200 kelimeye genişletilir |
 | Özet | TextRank: cümle embedding benzerliği + PageRank, top-3 cümle | Fallback: TF-cosine |
-| **Embedding** | **Multilingual MiniLM (paraphrase-multilingual-MiniLM-L12-v2), Core ML, ~90MB, gün 1'den bundle** | LLM değil, encoder — tez bozulmaz. `NLEmbedding` (EN) fallback. WordPiece tokenizer Swift'te; mean-pooling + L2 norm |
+| **Embedding** | **distiluse-base-multilingual-cased-v2 (512-dim), Core ML, ~135MB fp16, gün 1'den bundle** | LLM değil, encoder — tez bozulmaz. MiniLM'den değiştirildi: MiniLM tokenizer'ı SentencePiece (Swift'te ağır), distiluse WordPiece (Swift'te ~60 satır). Pooling+dense+normalize modele gömülü. `NLEmbedding` (EN) fallback |
 | Video (lokal dosya) | ≤20 kare sampling (1080p'ye downscale) + kare OCR + classify + orta kare feature print/renk | |
 | STT | `SFSpeechRecognizer`, **yalnızca `requiresOnDeviceRecognition = true`** | **Düzeltme:** on-device desteklenmiyorsa transcript ATLANIR; asla server'a düşülmez. Gizlilik vaadi mutlaktır |
 | PDF | PDFKit text extraction | Taranmış PDF (text'siz) → sayfa render + OCR **v1.x** |
