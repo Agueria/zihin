@@ -1,0 +1,11 @@
+# ML model paketleri (Mac tarafinda uretilir, git dizisinde tutulmaz)
+*.mlpackage
+*.mlmodelc
+
+# Xcode
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# macOS
+.DS_Store
