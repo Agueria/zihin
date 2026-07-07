@@ -223,7 +223,7 @@ SWIFT sheet §12 esas alınır:
 | E3 Şifreli DB (SQLCipher) | **v1.0, gün 1** | Sonradan eklemek migration cehennemi |
 | E1 Obsidian/Markdown export | **v1.0 (Faz 3)** | Item → md + frontmatter; klasöre yaz |
 | E4 Domain zengin kartlar | v1.x | Public metadata/oEmbed only |
-| E2 Knowledge graph | v1.x | Embedding benzerliği → bağlantı görünümü |
+| E2 Knowledge graph | **v1.0'a alındı** | Embedding benzerliği + ortak etiket → otomatik bağ; force-directed Canvas (`GraphView`), son 250 kayıt |
 | E5 On-device LLM (MLX) | v2, default KAPALI | Tezle çelişmez ama v1 kapsamı dışı |
 
 ---

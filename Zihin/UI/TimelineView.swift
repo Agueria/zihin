@@ -27,10 +27,18 @@ struct TimelineView: View {
             .navigationTitle("Zihin")
             .navigationDestination(for: String.self) { id in DetailRouter(itemId: id) }
             .toolbar {
-                Button { showNewNote = true } label: {
-                    Image(systemName: "plus")
+                ToolbarItem(placement: .topBarLeading) {
+                    NavigationLink { GraphView() } label: {
+                        Image(systemName: "point.3.connected.trianglepath.dotted")
+                    }
+                    .accessibilityLabel("Zihin ağı")
                 }
-                .accessibilityLabel("Yeni not")
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showNewNote = true } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("Yeni not")
+                }
             }
             .sheet(isPresented: $showNewNote) {
                 NewNoteSheet(text: $noteText) {

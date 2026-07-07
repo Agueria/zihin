@@ -60,6 +60,11 @@
   (3 sayfa, AppRoot'ta `hasOnboarded` fullScreenCover), `docs/APPSTORE.md` (açıklama TR/EN,
   keywords, privacy label = Data Not Collected, tek seferlik fiyat önerisi, ikon konsepti,
   ekran görüntüsü planı). Faz 4'te kalan: gerçek ikon üretimi + ekran görüntüleri (Mac).
+- **E2 Knowledge Graph v1.0'a alındı (kullanıcı istedi):** `Zihin/Features/KnowledgeGraph.swift`
+  (anlam bağı = cosine >= 0.5 düğüm başına top-3; etiket bağı = >=2 ortak etiket;
+  Fruchterman-Reingold layout; son 250 kayıt; izole düğümler gizli) +
+  `Zihin/UI/GraphView.swift` (Canvas, pan/zoom, düğüm seçimi -> "Aç" ile detaya) +
+  `ItemRepository.sharedTagPairs(minShared:)`. Giriş: Timeline sol üst ağ ikonu.
 
 ### Önemli kararlar / spec'ten sapmalar (oturum 1)
 - **Embedding modeli:** MiniLM yerine **distiluse-base-multilingual-cased-v2** (512-dim).

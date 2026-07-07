@@ -122,6 +122,21 @@ struct ItemRepository: Sendable {
         }
     }
 
+    /// Knowledge graph (E2): >= minShared ortak etikete sahip item çiftleri.
+    func sharedTagPairs(minShared: Int = 2) throws -> [(a: String, b: String, shared: Int)] {
+        try db.read { d in
+            let rows = try Row.fetchAll(d, sql: """
+                SELECT t1.itemId AS a, t2.itemId AS b, COUNT(*) AS c
+                FROM item_tag t1
+                JOIN item_tag t2 ON t1.tagId = t2.tagId AND t1.itemId < t2.itemId
+                GROUP BY t1.itemId, t2.itemId
+                HAVING c >= ?
+                LIMIT 2000
+                """, arguments: [minShared])
+            return rows.map { ($0["a"], $0["b"], $0["c"]) }
+        }
+    }
+
     // MARK: Spaces
     func spaces() throws -> [Space] {
         try db.read { try Space.order(Column("createdAt").desc).fetchAll($0) }
