@@ -2,7 +2,9 @@
 *.mlpackage
 *.mlmodelc
 
-# Xcode
+# Xcode (xcodegen generate ile üretilir, git'e girmez)
+Zihin.xcodeproj/
+Config/
 DerivedData/
 *.xcuserstate
 xcuserdata/

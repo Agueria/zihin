@@ -3,6 +3,20 @@
 > Bu repo Windows'ta üretildi; kod hiç derlenmedi. İlk derlemede ufak API düzeltmeleri
 > normaldir — hataları Mac'te Claude Code (`ecc:swift-build-resolver`) ile kapat.
 
+## Yol A (ÖNERİLEN): XcodeGen ile tek komut
+```bash
+brew install xcodegen
+cd Zihin-repo-klasörü
+xcodegen generate     # Zihin.xcodeproj üretir: target'lar, entitlement'lar, SPM, plist'ler
+open Zihin.xcodeproj
+```
+Sonra: iki target'ta **Signing → Team** seç → §5 (embedding modeli) → §7 (ilk çalıştırma).
+Aşağıdaki §1-§4 ve §6, Yol A'da otomatiktir (yalnız elle kurulumda gerekir).
+
+---
+
+## Yol B (elle kurulum)
+
 ## 1. Proje oluştur
 1. Xcode → **New Project → iOS → App**
    - Name: `Zihin` • Interface: **SwiftUI** • Storage: **None** • Min deployment: **iOS 17.0**

@@ -5,6 +5,7 @@ struct ZihinApp: App {
     @StateObject private var store = LibraryStore()
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("iCloudSync") private var iCloudSync = false
+    @AppStorage("hasOnboarded") private var hasOnboarded = false
 
     init() { ZihinAppearance.apply() }
 
@@ -13,6 +14,11 @@ struct ZihinApp: App {
             RootView()
                 .environmentObject(store)
                 .tint(.zihinViolet)
+                .fullScreenCover(isPresented: Binding(
+                    get: { !hasOnboarded },
+                    set: { hasOnboarded = !$0 })) {
+                    OnboardingView { hasOnboarded = true }
+                }
                 .task { await refresh() }
                 .onChange(of: scenePhase) { _, phase in
                     // Extension'dan dönüşte pending item'ları işle (spec §3.2)

@@ -55,6 +55,11 @@
   `ItemRepository.tags(for:)` eklendi; AppRoot @AppStorage("iCloudSync") ile sync tetikliyor;
   Settings'te eşitleme/aktarım UI.
 - **Not:** launch.json/dev-server uygulanamaz — iOS projesi Windows'ta çalıştırılamıyor.
+- **Faz 4 başlangıcı da yazıldı:** `project.yml` (XcodeGen — Mac kurulumu tek komut:
+  `xcodegen generate`; entitlement/plist/SPM otomatik), `Zihin/UI/OnboardingView.swift`
+  (3 sayfa, AppRoot'ta `hasOnboarded` fullScreenCover), `docs/APPSTORE.md` (açıklama TR/EN,
+  keywords, privacy label = Data Not Collected, tek seferlik fiyat önerisi, ikon konsepti,
+  ekran görüntüsü planı). Faz 4'te kalan: gerçek ikon üretimi + ekran görüntüleri (Mac).
 
 ### Önemli kararlar / spec'ten sapmalar (oturum 1)
 - **Embedding modeli:** MiniLM yerine **distiluse-base-multilingual-cased-v2** (512-dim).
