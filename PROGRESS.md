@@ -3,9 +3,9 @@
 > Her oturum bu dosyayı günceller. Yeni oturuma başlarken ÖNCE bunu,
 > sonra `docs/superpowers/specs/2026-07-06-zihin-design.md` (spec) oku.
 
-## Durum: Faz 0-2 kaynak kodu üretimi (Windows'ta, derlenmemiş)
+## Durum: Faz 0-3 kaynak kodu + premium UI TAMAM (Windows'ta, derlenmemiş) → sıra Mac derlemesinde
 
-**Son güncelleme:** 2026-07-06 (oturum 1)
+**Son güncelleme:** 2026-07-07 (oturum 2)
 
 ### Bitti ✅
 - [x] Tasarım spec'i yazıldı ve onaylandı → `docs/superpowers/specs/2026-07-06-zihin-design.md`
@@ -36,10 +36,25 @@
 
 ### Sıradaki adımlar (yeni oturum buradan devam eder) ⏭️
 1. **Mac'te:** `docs/SETUP_MAC.md` izle → derle (hatalar için `ecc:swift-build-resolver`).
-3. Faz 0 kapısı: cihazda OCR + classify + cosine kanıtı.
-4. Unit testler (TextRank/RAKE/kmeans/RRF/VectorStore/QueryParser) — YAZILMADI.
-5. Faz 3 kodu — YAZILMADI: CloudKitSyncService (spec §8), ObsidianExporter (E1).
-6. Faz 4: onboarding, ikon, App Store metadata.
+2. Faz 0 kapısı: cihazda OCR + classify + cosine kanıtı; `Cmd+U` ile AlgorithmTests yeşil.
+3. Faz 1-2 kapıları: TestFlight #1/#2 (spec §12).
+4. Faz 4: onboarding akışı, app ikonu, App Store metadata + gizlilik etiketi, fiyatlama.
+
+### Oturum 2 (2026-07-07) — Faz 3 + premium UI + backend gözden geçirme ✅
+- **Faz 3 yazıldı:** `Zihin/Sync/CloudKitSyncService.swift` (token App Group UserDefaults'ta,
+  readerHTML/asset sync dışı, LWW, 200'lük push parçaları) ve
+  `Zihin/Features/ObsidianExporter.swift` (security-scoped klasöre frontmatter'lı .md).
+- **Testler yazıldı:** `ZihinTests/AlgorithmTests.swift` (Xcode'da test target'a ekle — SETUP §6b).
+- **Premium UI:** `Zihin/UI/Theme.swift` = görsel kimlik "mürekkep/kâğıt/varak"
+  (zihinInk/Paper/Card/Parchment/Gold/Violet, serif nav başlıkları, zihinCard() gölgesi,
+  MasonryGrid doğal oranlı 2 kolon, TagChip/Eyebrow). Tüm view'lar yeniden yazıldı:
+  Serendipity "altın varak" deste (imza an), Search'te renk/tarih çipleri, kart altı renk
+  noktaları, detayda etiket çipleri + DisclosureGroup OCR, boş durumlar, a11y etiketleri.
+- **Backend düzeltmeleri:** ShareViewController -> kilitli ShareCollector + öncelik
+  (dosya > URL > görsel > metin; Safari URL+text paylaşımında URL kazanır);
+  `ItemRepository.tags(for:)` eklendi; AppRoot @AppStorage("iCloudSync") ile sync tetikliyor;
+  Settings'te eşitleme/aktarım UI.
+- **Not:** launch.json/dev-server uygulanamaz — iOS projesi Windows'ta çalıştırılamıyor.
 
 ### Önemli kararlar / spec'ten sapmalar (oturum 1)
 - **Embedding modeli:** MiniLM yerine **distiluse-base-multilingual-cased-v2** (512-dim).

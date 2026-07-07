@@ -110,6 +110,18 @@ struct ItemRepository: Sendable {
         }
     }
 
+    /// Detay ekranı etiket çipleri için.
+    func tags(for itemId: String) throws -> [String] {
+        try db.read { d in
+            try String.fetchAll(d, sql: """
+                SELECT tag.name FROM tag
+                JOIN item_tag ON item_tag.tagId = tag.id
+                WHERE item_tag.itemId = ?
+                ORDER BY tag.name
+                """, arguments: [itemId])
+        }
+    }
+
     // MARK: Spaces
     func spaces() throws -> [Space] {
         try db.read { try Space.order(Column("createdAt").desc).fetchAll($0) }

@@ -13,12 +13,18 @@ struct SpacesView: View {
             List {
                 ForEach(spaces) { space in
                     NavigationLink(value: space.id) {
-                        VStack(alignment: .leading) {
-                            Text(space.name).font(.headline)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(space.name)
+                                .font(.headline)
+                                .fontDesign(.serif)
+                                .foregroundStyle(Color.zihinInk)
                             if let q = space.query {
-                                Text(q).font(.caption).foregroundStyle(.secondary)
+                                Text("“\(q)” aramasıyla eşleşenler")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
                         }
+                        .padding(.vertical, 4)
                     }
                 }
                 .onDelete { idx in
@@ -26,11 +32,23 @@ struct SpacesView: View {
                     reload()
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(Color.zihinPaper.ignoresSafeArea())
             .overlay {
                 if spaces.isEmpty {
-                    ContentUnavailableView("Space yok",
-                        systemImage: "folder",
-                        description: Text("Bir aramayı space olarak kaydet; eşleşen her şey otomatik burada olur."))
+                    VStack(spacing: 12) {
+                        Image(systemName: "square.stack")
+                            .font(.system(size: 36))
+                            .foregroundStyle(Color.zihinViolet)
+                        Text("Henüz space yok")
+                            .font(.title3.weight(.semibold))
+                            .fontDesign(.serif)
+                            .foregroundStyle(Color.zihinInk)
+                        Text("Bir aramayı kaydet; eşleşen her kayıt\notomatik olarak burada toplanır.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
                 }
             }
             .navigationTitle("Space'ler")
@@ -39,7 +57,10 @@ struct SpacesView: View {
                     SpaceItemsView(space: space)
                 }
             }
-            .toolbar { Button { showNew = true } label: { Image(systemName: "plus") } }
+            .toolbar {
+                Button { showNew = true } label: { Image(systemName: "plus") }
+                    .accessibilityLabel("Yeni space")
+            }
             .sheet(isPresented: $showNew) {
                 NavigationStack {
                     Form {
@@ -47,13 +68,15 @@ struct SpacesView: View {
                         TextField("Arama sorgusu (ör. font tasarım)", text: $query)
                     }
                     .navigationTitle("Yeni Space")
+                    .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
                             Button("Kaydet") {
                                 try? repo.saveSpace(Space(name: name, isSmart: true, query: query))
                                 name = ""; query = ""; showNew = false
                                 reload()
-                            }.disabled(name.isEmpty || query.isEmpty)
+                            }
+                            .disabled(name.isEmpty || query.isEmpty)
                         }
                     }
                 }
@@ -70,17 +93,19 @@ struct SpaceItemsView: View {
     let space: Space
     @State private var items: [Item] = []
     private let search = SearchService()
-    private let columns = [GridItem(.adaptive(minimum: 160), spacing: 12)]
 
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: columns, spacing: 12) {
-                ForEach(items) { item in
+            VStack(alignment: .leading, spacing: 14) {
+                Eyebrow(text: "\(items.count) eşleşen kayıt")
+                MasonryGrid(items: items) { item in
                     NavigationLink(value: item.id) { CardView(item: item) }
                         .buttonStyle(.plain)
                 }
-            }.padding(12)
+            }
+            .padding(14)
         }
+        .background(Color.zihinPaper.ignoresSafeArea())
         .navigationTitle(space.name)
         .navigationDestination(for: String.self) { id in DetailRouter(itemId: id) }
         .task { items = await search.search(space.query ?? "") }

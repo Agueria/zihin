@@ -4,24 +4,32 @@ import SwiftUI
 struct ZihinApp: App {
     @StateObject private var store = LibraryStore()
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("iCloudSync") private var iCloudSync = false
+
+    init() { ZihinAppearance.apply() }
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environmentObject(store)
-                .task { await enrichAndReload() }
+                .tint(.zihinViolet)
+                .task { await refresh() }
                 .onChange(of: scenePhase) { _, phase in
                     // Extension'dan dönüşte pending item'ları işle (spec §3.2)
-                    if phase == .active { Task { await enrichAndReload() } }
+                    if phase == .active { Task { await refresh() } }
                 }
         }
     }
 
     @MainActor
-    private func enrichAndReload() async {
+    private func refresh() async {
         store.reload()
         await EnrichmentQueue.shared.run()
         store.reload()
+        if iCloudSync {
+            await CloudKitSyncService.shared.sync()
+            store.reload()
+        }
     }
 }
 
@@ -72,7 +80,7 @@ struct RootView: View {
         TabView {
             TimelineView().tabItem { Label("Zihin", systemImage: "square.grid.2x2") }
             SearchView().tabItem { Label("Ara", systemImage: "magnifyingglass") }
-            SpacesView().tabItem { Label("Space'ler", systemImage: "folder") }
+            SpacesView().tabItem { Label("Space'ler", systemImage: "square.stack") }
             SerendipityView().tabItem { Label("Keşfet", systemImage: "sparkles") }
             SettingsView().tabItem { Label("Ayarlar", systemImage: "gearshape") }
         }

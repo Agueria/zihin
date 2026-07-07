@@ -87,6 +87,11 @@ st.tokenizer.save_pretrained("tok")   # tok/vocab.txt çıkar
 | `NSSpeechRecognitionUsageDescription` | Videolardaki konuşmayı cihazında metne çevirmek için. |
 | `NSMicrophoneUsageDescription` | Ekran kaydı içeriğini işlemek için. |
 
+## 6b. Unit test target'ı
+1. **File → New → Target → Unit Testing Bundle**, Name: `ZihinTests` (Host: Zihin app).
+2. Repodaki `ZihinTests/AlgorithmTests.swift`'i target'a ekle → `Cmd+U` ile koş.
+   Saf algoritmaları (TextRank/RAKE/kmeans/RRF/parser/exporter) cihazsız doğrular.
+
 ## 7. İlk çalıştırma (Faz 0 kapısı)
 1. Gerçek iPhone'da çalıştır (Simulator'da Vision/Speech sınırlı).
 2. `+` ile not ekle → kartta özet/etiket oluşmalı.
