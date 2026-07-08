@@ -6,14 +6,14 @@ import NaturalLanguage
 /// yoksa Apple EN sentence embedding kullanır. Sorgu + item AYNI modeli kullanmalı;
 /// model bundle'a eklendiyse hep o çalışır -> tutarlılık garantili.
 enum EmbeddingService {
+    /// v2 (§4.1): NLContextualEmbedding tabanlı sağlayıcıya yönlendirir. Doküman vektörü =
+    /// chunk vektörlerinin ortalaması. Merkezleme OKUMA anında yapılır (SearchService/Classifier).
+    /// İngilizce `NLEmbedding` fallback'i KALDIRILDI (§2.1 — Türkçede sistematik yanlıştı).
     static func embed(_ text: String) -> [Float]? {
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return nil }
-        if let v = MultilingualEmbedder.shared?.vector(for: clean) { return v }
-        if let d = NLEmbedding.sentenceEmbedding(for: .english)?.vector(for: clean) {
-            return d.map(Float.init)
-        }
-        return nil
+        guard let chunks = ContextualProvider().embed(clean), !chunks.isEmpty else { return nil }
+        return Pooling.meanPool(chunks)
     }
 }
 

@@ -104,6 +104,109 @@ final class DatabaseManager: Sendable {
                 t.tokenizer = .unicode61(diacritics: .removeLegacy)
             }
         }
+
+        // v2 (spec §4.2): anlam katmanı, taksonomi, kavram grafiği, materyalize üyelik.
+        m.registerMigration("v2") { db in
+            // (a) Model versiyonlama + lemma gölge kolonu (§4.1a / §4.7)
+            try db.alter(table: "item") { t in
+                t.add(column: "embeddingModel", .text)
+                t.add(column: "embeddingRevision", .integer)
+                t.add(column: "lemmaText", .text)
+            }
+            // Etiket tipi (§4.3) — graph/space yalnız topic'e bakar
+            try db.alter(table: "tag") { t in
+                t.add(column: "kind", .text).notNull().defaults(to: "keyword")
+            }
+            // Space üyeliği materyalize (§4.4). DİKKAT: item_space ZATEN var → ALTER
+            try db.alter(table: "item_space") { t in
+                t.add(column: "source", .text).notNull().defaults(to: "manual")
+                t.add(column: "excluded", .boolean).notNull().defaults(to: false)
+            }
+            try db.alter(table: "space") { t in
+                t.add(column: "rule", .text)
+                t.add(column: "threshold", .double)
+            }
+            // (c) Chunk vektörleri (§4.1c)
+            try db.create(table: "item_chunk") { t in
+                t.column("itemId", .text).notNull().references("item", onDelete: .cascade)
+                t.column("idx", .integer).notNull()
+                t.column("vector", .blob).notNull()
+                t.primaryKey(["itemId", "idx"])
+            }
+            // Taksonomi (§4.3)
+            try db.create(table: "topic") { t in
+                t.column("id", .text).primaryKey()
+                t.column("name", .text).notNull()
+                t.column("parentId", .text).references("topic")
+                t.column("isCore", .boolean).notNull().defaults(to: false)
+                t.column("createdAt", .datetime).notNull()
+            }
+            try db.create(table: "topic_phrase") { t in
+                t.column("topicId", .text).notNull().references("topic", onDelete: .cascade)
+                t.column("phrase", .text).notNull()
+            }
+            try db.create(table: "item_topic") { t in
+                t.column("itemId", .text).notNull().references("item", onDelete: .cascade)
+                t.column("topicId", .text).notNull().references("topic", onDelete: .cascade)
+                t.column("score", .double).notNull()
+                t.column("source", .text).notNull()
+                t.primaryKey(["itemId", "topicId"])
+            }
+            // Kavram grafiği (§4.6)
+            try db.create(table: "graph_position") { t in
+                t.column("nodeKey", .text).primaryKey()
+                t.column("x", .double)
+                t.column("y", .double)
+                t.column("pinned", .boolean).notNull().defaults(to: false)
+            }
+            try db.create(table: "manual_edge") { t in
+                t.column("id", .text).primaryKey()
+                t.column("aKey", .text).notNull()          // DAİMA aKey < bKey normalize edilir
+                t.column("bKey", .text).notNull()
+                t.column("origin", .text).notNull()        // user|suggested
+                t.column("batchId", .text)                 // toplu geri alma
+                t.column("createdAt", .datetime).notNull()
+                t.uniqueKey(["aKey", "bKey"])              // çift kenar imkânsız
+            }
+            try db.create(table: "profile_node") { t in
+                t.column("id", .text).primaryKey()
+                t.column("name", .text).notNull()
+            }
+            try db.create(table: "profile_topic") { t in
+                t.column("profileId", .text).notNull().references("profile_node", onDelete: .cascade)
+                t.column("topicId", .text).notNull().references("topic", onDelete: .cascade)
+                t.primaryKey(["profileId", "topicId"])
+            }
+            // (b) μ + model durumu (§4.1b)
+            try db.create(table: "embedding_meta") { t in
+                t.column("key", .text).primaryKey()
+                t.column("vector", .blob)
+                t.column("count", .integer)
+                t.column("model", .text)
+                t.column("revision", .integer)
+            }
+            // FTS5 yeniden kur: lemmaText kolonu ekle (§4.2). bm25 ağırlıkları sorgu anında (§4.7).
+            // Eski synchronize trigger'ları item tablosunda; adlarında "item_fts" geçenleri düşür.
+            let oldTriggers = try String.fetchAll(db, sql:
+                "SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'item'")
+            for name in oldTriggers where name.contains("item_fts") {
+                try db.execute(sql: "DROP TRIGGER IF EXISTS \"\(name)\"")
+            }
+            try db.execute(sql: "DROP TABLE IF EXISTS item_fts")
+            try db.create(virtualTable: "item_fts", using: FTS5()) { t in
+                t.synchronize(withTable: "item")
+                t.column("title")
+                t.column("summary")
+                t.column("textContent")
+                t.column("transcript")
+                t.column("ocrText")
+                t.column("frameText")
+                t.column("lemmaText")
+                t.tokenizer = .unicode61(diacritics: .removeLegacy)
+            }
+            // Mevcut tüm embedding'ler çöp (§2.1) → sessiz reindex (§4.8)
+            try db.execute(sql: "UPDATE item SET status = 'pending', embedding = NULL, dirty = 1")
+        }
         return m
     }
 }

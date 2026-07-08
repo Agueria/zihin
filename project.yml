@@ -5,7 +5,7 @@ name: Zihin
 options:
   bundleIdPrefix: app.zihin
   deploymentTarget:
-    iOS: "17.0"
+    iOS: "26.0"   # v2 (2026-07-09): FoundationModels her zaman derlenir; kullanımı availability ile kapılanır
   createIntermediateGroups: true
 
 packages:
