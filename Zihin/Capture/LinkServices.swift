@@ -111,7 +111,7 @@ enum LinkEnricher {
         let base = [caption, item.textContent ?? "", item.ocrText ?? ""]
             .joined(separator: " ")
         item.lang = LanguageService.dominantLanguage(base)
-        item.embedding = EmbeddingService.embed(base).map(VectorStore.encode)
+        // v2 (§4.1): embedding + chunk + μ artık EnrichmentQueue'da merkezî üretiliyor.
         return posterTags + LanguageService.namedEntities(caption) + KeywordService.keywords(base)
     }
 }

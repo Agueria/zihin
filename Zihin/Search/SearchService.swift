@@ -91,10 +91,15 @@ struct SearchService: Sendable {
 
     private func vectorSearch(_ query: String) -> [String] {
         guard !query.isEmpty, let qv = EmbeddingService.embed(query) else { return [] }
-        let all = (try? repo.allEmbeddings()) ?? []
-        return all
-            .map { (id: $0.id, s: VectorStore.cosine(qv, $0.vec)) }
-            .filter { $0.s > 0.15 }
+        // v2 (§4.7): merkezlenmiş cosine + chunk max-pool. MUTLAK EŞİK YOK — top-K sıralama.
+        // Ham cosine `> 0.15` (kök neden A'nın semptomu) kaldırıldı; her şey geçmiyor.
+        let mu = (try? db.read { try CenteringStore.frozenMu($0).mu }) ?? []
+        let pools = (try? repo.allChunkPools()) ?? []
+        let source: [(id: String, vec: [Float])] = pools.isEmpty
+            ? ((try? repo.allEmbeddings()) ?? [])                 // chunk yoksa doküman vektörü
+            : pools.map { (id: $0.id, vec: $0.pool) }
+        return source
+            .map { (id: $0.id, s: Centered.cosine(qv, $0.vec, mu: mu)) }
             .sorted { $0.s > $1.s }
             .prefix(200)
             .map { $0.id }

@@ -26,6 +26,22 @@ enum LanguageService {
         }
         return Array(out)
     }
+
+    /// v2 (§4.7): NLTagger(.lemma) gölge metni — `yazılımcı` ≡ `yazılım` aramada eşleşsin.
+    static func lemmatize(_ text: String) -> String {
+        guard !text.isEmpty else { return "" }
+        let tagger = NLTagger(tagSchemes: [.lemma])
+        tagger.string = text
+        var out: [String] = []
+        let opts: NLTagger.Options = [.omitWhitespace, .omitPunctuation]
+        tagger.enumerateTags(in: text.startIndex..<text.endIndex, unit: .word,
+                             scheme: .lemma, options: opts) { tag, range in
+            if let lemma = tag?.rawValue, !lemma.isEmpty { out.append(lemma.lowercased()) }
+            else { out.append(text[range].lowercased()) }
+            return true
+        }
+        return out.joined(separator: " ")
+    }
 }
 
 // MARK: - Stopwords (TR + EN)

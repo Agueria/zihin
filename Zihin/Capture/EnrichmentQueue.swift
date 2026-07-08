@@ -3,6 +3,8 @@ import UIKit
 
 /// İki aşamalı capture'ın 2. aşaması (spec §3.2). YALNIZ ana app'te çalışır
 /// (extension bellek limiti). Foreground'a geçişte AppRoot tetikler.
+/// v2 (§4.1): embedding artık EmbeddingCoordinator üzerinden — chunk vektörleri, model
+/// damgası ve μ toplamı da burada üretilir; merkezleme okuma anında yapılır.
 actor EnrichmentQueue {
     static let shared = EnrichmentQueue()
     private let repo = ItemRepository()
@@ -14,6 +16,8 @@ actor EnrichmentQueue {
         guard !running else { return }
         running = true
         defer { running = false }
+
+        await EmbeddingCoordinator.shared.prepare()        // asset'leri hazırla (§2.3/§6)
         let pending = (try? repo.pendingItems()) ?? []
         for var item in pending {
             try? repo.setStatus(.enriching, id: item.id)
@@ -29,6 +33,10 @@ actor EnrichmentQueue {
                 }
             }
         }
+        // Donmuş μ'yu günde en çok bir kez tazele → space üyeliği & graph titremesin (§4.1b)
+        try? DatabaseManager.shared.dbPool.write { db in
+            try CenteringStore.refreshFrozenMuIfNeeded(db)
+        }
     }
 
     private func enrich(_ item: inout Item) async throws -> [String] {
@@ -37,7 +45,7 @@ actor EnrichmentQueue {
             let text = item.textContent ?? ""
             item.lang = LanguageService.dominantLanguage(text)
             item.summary = SummaryService.summarize(text, n: 2)
-            item.embedding = EmbeddingService.embed(text).map(VectorStore.encode)
+            await embed(&item, from: text)
             return LanguageService.namedEntities(text) + KeywordService.keywords(text)
 
         case .image:
@@ -50,11 +58,15 @@ actor EnrichmentQueue {
             item.colors = ColorService.dominantColorNames(cgImage: cg)
             item.lang = LanguageService.dominantLanguage(v.ocrText)
             let base = ([v.ocrText] + v.classifications).joined(separator: " ")
-            item.embedding = EmbeddingService.embed(base).map(VectorStore.encode)
+            await embed(&item, from: base)
             return v.classifications + item.colors + LanguageService.namedEntities(v.ocrText)
 
         case .link:
-            return try await LinkEnricher.enrich(&item)
+            let tags = try await LinkEnricher.enrich(&item)
+            let base = [item.title, item.summary, item.textContent, item.ocrText]
+                .compactMap { $0 }.joined(separator: " ")
+            await embed(&item, from: base)
+            return tags
 
         case .video:
             guard let path = item.assetPath else { throw EnrichError.badAsset }
@@ -69,7 +81,7 @@ actor EnrichmentQueue {
             }
             let base = [r.transcript, r.frameText].joined(separator: " ")
             item.lang = LanguageService.dominantLanguage(base)
-            item.embedding = EmbeddingService.embed(base).map(VectorStore.encode)
+            await embed(&item, from: base)
             return r.classifications + r.colors
                 + LanguageService.namedEntities(base) + KeywordService.keywords(base)
 
@@ -79,8 +91,27 @@ actor EnrichmentQueue {
             item.textContent = text
             item.summary = SummaryService.summarize(text, n: 3)
             item.lang = LanguageService.dominantLanguage(text)
-            item.embedding = EmbeddingService.embed(text).map(VectorStore.encode)
+            await embed(&item, from: text)
             return LanguageService.namedEntities(text) + KeywordService.keywords(text)
+        }
+    }
+
+    /// v2 (§4.1): doküman vektörü + chunk'ları üret, kalıcılaştır, aktif modeli damgala,
+    /// μ toplamına ekle, lemma gölge kolonunu doldur. Model inmemişse embedding boş kalır
+    /// (§6 — indirilene kadar yalnız FTS5 ile çalışılır).
+    private func embed(_ item: inout Item, from text: String) async {
+        item.lemmaText = LanguageService.lemmatize(text)
+        guard let result = await EmbeddingCoordinator.shared.embedDocument(text) else {
+            item.embedding = nil
+            return
+        }
+        item.embedding = VectorStore.encode(result.doc)
+        await EmbeddingCoordinator.shared.stamp(&item)
+        try? repo.saveChunks(result.chunks, itemId: item.id)
+        let model = item.embeddingModel ?? ""
+        let revision = item.embeddingRevision ?? 0
+        try? DatabaseManager.shared.dbPool.write { db in
+            try CenteringStore.runningAdd(result.doc, model: model, revision: revision, db)
         }
     }
 }

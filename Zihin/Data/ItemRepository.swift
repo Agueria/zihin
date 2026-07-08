@@ -137,6 +137,62 @@ struct ItemRepository: Sendable {
         }
     }
 
+    // MARK: v2 — chunk vektörleri, reindex, düzenleme (§4.1c/§4.5/§4.8)
+
+    /// Item'ın chunk vektörlerini değiştir (reindex'te eskiler silinir).
+    func saveChunks(_ vectors: [[Float]], itemId: String) throws {
+        try db.write { d in
+            try ItemChunk.filter(Column("itemId") == itemId).deleteAll(d)
+            for (i, v) in vectors.enumerated() {
+                try ItemChunk(itemId: itemId, idx: i, vector: VectorStore.encode(v)).insert(d)
+            }
+        }
+    }
+
+    /// Arama max-pool için tek item'ın chunk vektörleri.
+    func chunks(itemId: String) throws -> [[Float]] {
+        try db.read { d in
+            try ItemChunk.filter(Column("itemId") == itemId)
+                .order(Column("idx"))
+                .fetchAll(d)
+                .map { VectorStore.decode($0.vector) }
+        }
+    }
+
+    /// Tüm item'lar için (id, chunk max-pool) — merkezlenmiş vektör aramasının girdisi (§4.7).
+    func allChunkPools() throws -> [(id: String, pool: [Float])] {
+        try db.read { d in
+            let rows = try ItemChunk.order(Column("itemId"), Column("idx")).fetchAll(d)
+            var byItem: [String: [[Float]]] = [:]
+            for r in rows { byItem[r.itemId, default: []].append(VectorStore.decode(r.vector)) }
+            return byItem.map { (id: $0.key, pool: Pooling.maxPool($0.value)) }
+        }
+    }
+
+    /// Aktif modelle uyuşmayan veya embedding'i olmayan item'lar → reindex (§4.1a/§4.8).
+    func itemsNeedingReindex(model: String, revision: Int) throws -> [Item] {
+        try db.read { d in
+            try Item.filter(Column("forgotten") == false)
+                .filter(Column("embedding") == nil
+                        || Column("embeddingModel") != model
+                        || Column("embeddingRevision") != revision)
+                .fetchAll(d)
+        }
+    }
+
+    /// Not düzenleme (§4.5): içerik/başlık değişince yeniden indeksle.
+    func updateContent(id: String, title: String?, text: String) throws {
+        try db.write { d in
+            try Item.filter(key: id).updateAll(d,
+                Column("title").set(to: title),
+                Column("textContent").set(to: text),
+                Column("status").set(to: ItemStatus.pending.rawValue),
+                Column("embedding").set(to: nil),
+                Column("dirty").set(to: true),
+                Column("updatedAt").set(to: Date()))
+        }
+    }
+
     // MARK: Spaces
     func spaces() throws -> [Space] {
         try db.read { try Space.order(Column("createdAt").desc).fetchAll($0) }
