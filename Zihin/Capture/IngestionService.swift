@@ -17,8 +17,9 @@ enum IngestionService {
         var item: Item
         switch content {
         case .text(let s):
+            // v2 (§4.5): başlık gövdeden TÜRETİLMEZ. Boş kalır; görüntüleme anında türetilir
+            // ya da kullanıcı verir. `prefix(80)` hilesi kaldırıldı.
             item = Item(type: .note, textContent: s)
-            item.title = String(s.prefix(80))
         case .url(let u):
             item = Item(type: .link, url: u.absoluteString)
             item.title = u.host

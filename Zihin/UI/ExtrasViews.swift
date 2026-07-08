@@ -36,7 +36,7 @@ struct SerendipityView: View {
                         ForEach(Array(deck.prefix(3).enumerated().reversed()),
                                 id: \.element.id) { index, item in
                             if index == 0 {
-                                NavigationLink(value: item.id) {
+                                NavigationLink(value: Route.item(item.id)) {
                                     CardView(item: item).frame(maxWidth: 300)
                                 }
                                 .buttonStyle(.plain)
@@ -85,7 +85,7 @@ struct SerendipityView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.zihinPaper.ignoresSafeArea())
             .navigationTitle("Keşfet")
-            .navigationDestination(for: String.self) { id in DetailRouter(itemId: id) }
+            .zihinRoutes()
             .toolbar {
                 Button {
                     deck = (try? repo.randomItems(10)) ?? []

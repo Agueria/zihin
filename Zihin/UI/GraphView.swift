@@ -172,7 +172,7 @@ struct GraphView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            NavigationLink(value: node.id) {
+            NavigationLink(value: Route.item(node.id)) {
                 Text("Aç")
                     .font(.subheadline.weight(.semibold))
             }

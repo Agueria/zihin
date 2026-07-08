@@ -57,10 +57,13 @@ final class LibraryStore: ObservableObject {
     }
     func clearSearch() { searchResults = nil }
 
-    func addNote(_ text: String) {
+    func addNote(title: String?, _ text: String) {
         guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         Task {
-            _ = try? IngestionService.capture(.text(text))
+            if var item = try? IngestionService.capture(.text(text)) {
+                let t = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !t.isEmpty { item.title = t; try? repo.save(&item) }   // v2 §4.5: kullanıcı başlığı
+            }
             await EnrichmentQueue.shared.run()
             self.reload()
         }

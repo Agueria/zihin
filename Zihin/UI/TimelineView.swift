@@ -3,6 +3,7 @@ import SwiftUI
 struct TimelineView: View {
     @EnvironmentObject var store: LibraryStore
     @State private var showNewNote = false
+    @State private var noteTitle = ""
     @State private var noteText = ""
 
     var body: some View {
@@ -15,7 +16,7 @@ struct TimelineView: View {
                         Eyebrow(text: "\(store.items.count) kayıt · hepsi cihazında")
                             .padding(.horizontal, 2)
                         MasonryGrid(items: store.items) { item in
-                            NavigationLink(value: item.id) { CardView(item: item) }
+                            NavigationLink(value: Route.item(item.id)) { CardView(item: item) }
                                 .buttonStyle(.plain)
                                 .contextMenu { cardMenu(item) }
                         }
@@ -25,7 +26,7 @@ struct TimelineView: View {
             }
             .background(Color.zihinPaper.ignoresSafeArea())
             .navigationTitle("Zihin")
-            .navigationDestination(for: String.self) { id in DetailRouter(itemId: id) }
+            .zihinRoutes()
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     NavigationLink { GraphView() } label: {
@@ -41,8 +42,9 @@ struct TimelineView: View {
                 }
             }
             .sheet(isPresented: $showNewNote) {
-                NewNoteSheet(text: $noteText) {
-                    store.addNote(noteText); noteText = ""; showNewNote = false
+                NewNoteSheet(title: $noteTitle, text: $noteText) {
+                    store.addNote(title: noteTitle, noteText)
+                    noteTitle = ""; noteText = ""; showNewNote = false
                 }
             }
             .refreshable { store.reload() }
@@ -232,23 +234,32 @@ struct EmptyMind: View {
 }
 
 struct NewNoteSheet: View {
+    @Binding var title: String
     @Binding var text: String
     var onSave: () -> Void
     var body: some View {
         NavigationStack {
-            TextEditor(text: $text)
-                .fontDesign(.serif)
-                .scrollContentBackground(.hidden)
-                .padding(14)
-                .background(Color.zihinParchment)
-                .navigationTitle("Yeni Not")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Kaydet", action: onSave)
-                            .disabled(text.trimmingCharacters(in: .whitespaces).isEmpty)
-                    }
+            VStack(spacing: 0) {
+                TextField("Başlık (isteğe bağlı)", text: $title)
+                    .font(.title3.weight(.semibold))
+                    .fontDesign(.serif)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 14)
+                Divider().padding(.vertical, 8).padding(.horizontal, 14)
+                TextEditor(text: $text)
+                    .fontDesign(.serif)
+                    .scrollContentBackground(.hidden)
+                    .padding(.horizontal, 14)
+            }
+            .background(Color.zihinParchment)
+            .navigationTitle("Yeni Not")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Kaydet", action: onSave)
+                        .disabled(text.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
+            }
         }
         .presentationDetents([.medium, .large])
     }

@@ -150,7 +150,7 @@ struct ImageDetailView: View {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 10) {
                                 ForEach(similar) { s in
-                                    NavigationLink(value: s.id) {
+                                    NavigationLink(value: Route.item(s.id)) {
                                         LocalImage(relative: s.assetPath ?? s.posterPath)
                                             .scaledToFill()
                                             .frame(width: 110, height: 110)
@@ -174,6 +174,10 @@ struct ImageDetailView: View {
 struct NoteDetailView: View {
     let item: Item
     let tags: [String]
+    @State private var editing = false
+    @State private var draftTitle = ""
+    @State private var draftText = ""
+    private let repo = ItemRepository()
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -202,6 +206,45 @@ struct NoteDetailView: View {
         .background(Color.zihinPaper.ignoresSafeArea())
         .navigationTitle(item.title ?? "Not")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            Button {
+                draftTitle = item.title ?? ""
+                draftText = item.textContent ?? ""
+                editing = true
+            } label: { Image(systemName: "pencil") }
+            .accessibilityLabel("Notu düzenle")
+        }
+        .sheet(isPresented: $editing) {
+            NavigationStack {
+                VStack(spacing: 0) {
+                    TextField("Başlık (isteğe bağlı)", text: $draftTitle)
+                        .font(.title3.weight(.semibold)).fontDesign(.serif)
+                        .padding(.horizontal, 14).padding(.top, 14)
+                    Divider().padding(.vertical, 8).padding(.horizontal, 14)
+                    TextEditor(text: $draftText).fontDesign(.serif)
+                        .scrollContentBackground(.hidden).padding(.horizontal, 14)
+                }
+                .background(Color.zihinParchment)
+                .navigationTitle("Notu Düzenle")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("İptal") { editing = false }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Kaydet") {
+                            let t = draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                            // v2 (§4.5): içerik değişince yeniden indekslenir (dirty + pending).
+                            try? repo.updateContent(id: item.id, title: t.isEmpty ? nil : t, text: draftText)
+                            editing = false
+                            Task { await EnrichmentQueue.shared.run() }
+                        }
+                        .disabled(draftText.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                }
+            }
+            .presentationDetents([.medium, .large])
+        }
     }
 }
 

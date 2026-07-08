@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Smart Space = kayıtlı arama (spec §9). Dinamik dolar/boşalır.
+/// Smart Space = kayıtlı arama (spec §9). v2: navigasyon `Route` ile (§4.5).
 struct SpacesView: View {
     @State private var spaces: [Space] = []
     @State private var showNew = false
@@ -12,7 +12,7 @@ struct SpacesView: View {
         NavigationStack {
             List {
                 ForEach(spaces) { space in
-                    NavigationLink(value: space.id) {
+                    NavigationLink(value: Route.space(space.id)) {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(space.name)
                                 .font(.headline)
@@ -52,11 +52,7 @@ struct SpacesView: View {
                 }
             }
             .navigationTitle("Space'ler")
-            .navigationDestination(for: String.self) { id in
-                if let space = spaces.first(where: { $0.id == id }) {
-                    SpaceItemsView(space: space)
-                }
-            }
+            .zihinRoutes()
             .toolbar {
                 Button { showNew = true } label: { Image(systemName: "plus") }
                     .accessibilityLabel("Yeni space")
@@ -89,9 +85,12 @@ struct SpacesView: View {
     private func reload() { spaces = (try? repo.spaces()) ?? [] }
 }
 
+/// Space içeriği. v2 (§4.5): `spaceId` ile yüklenir; item'lar `Route.item` ile açılır.
 struct SpaceItemsView: View {
-    let space: Space
+    let spaceId: String
+    @State private var space: Space?
     @State private var items: [Item] = []
+    private let repo = ItemRepository()
     private let search = SearchService()
 
     var body: some View {
@@ -99,15 +98,19 @@ struct SpaceItemsView: View {
             VStack(alignment: .leading, spacing: 14) {
                 Eyebrow(text: "\(items.count) eşleşen kayıt")
                 MasonryGrid(items: items) { item in
-                    NavigationLink(value: item.id) { CardView(item: item) }
+                    NavigationLink(value: Route.item(item.id)) { CardView(item: item) }
                         .buttonStyle(.plain)
                 }
             }
             .padding(14)
         }
         .background(Color.zihinPaper.ignoresSafeArea())
-        .navigationTitle(space.name)
-        .navigationDestination(for: String.self) { id in DetailRouter(itemId: id) }
-        .task { items = await search.search(space.query ?? "") }
+        .navigationTitle(space?.name ?? "Space")
+        .task {
+            space = (try? repo.spaces())?.first { $0.id == spaceId }
+            // TODO(F1.2): materyalize item_space üyeliğinden oku (matches() ⟂ search()).
+            // Şimdilik kayıtlı sorguyla dolduruluyor.
+            items = await search.search(space?.query ?? "")
+        }
     }
 }
