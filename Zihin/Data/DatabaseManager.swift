@@ -99,7 +99,9 @@ final class DatabaseManager: Sendable {
                 t.column("summary")
                 t.column("transcript")
                 t.column("frameText")
-                t.tokenizer = .unicode61(diacritics: .remove)
+                // .remove (remove_diacritics=2) GRDBCIPHER build'lerinde derlenmiyor;
+                // SQLCipher fork'unda diakritik temizleyen tek seçenek .removeLegacy.
+                t.tokenizer = .unicode61(diacritics: .removeLegacy)
             }
         }
         return m

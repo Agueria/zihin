@@ -29,7 +29,7 @@ final class CloudKitSyncService: @unchecked Sendable {
 
     // MARK: Push
     func pushDirty() async {
-        let dirty: [Item] = (try? pool.read { d in
+        let dirty: [Item] = (try? await pool.read { d in
             try Item.filter(Column("dirty") == true).fetchAll(d)
         }) ?? []
         guard !dirty.isEmpty else { return }
@@ -45,8 +45,9 @@ final class CloudKitSyncService: @unchecked Sendable {
             for (recordID, res) in result.saveResults {
                 guard case .success(let record) = res else { continue }
                 let sys = Self.encodeSystemFields(record)
-                try? pool.write { d in
-                    try Item.filter(key: recordID.recordName).updateAll(d,
+                let recordName = recordID.recordName
+                try? await pool.write { d in
+                    try Item.filter(key: recordName).updateAll(d,
                         Column("dirty").set(to: false),
                         Column("ckSystemFields").set(to: sys))
                 }

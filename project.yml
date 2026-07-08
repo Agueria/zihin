@@ -11,7 +11,11 @@ options:
 packages:
   GRDB:
     url: https://github.com/duckduckgo/GRDB.swift
-    from: "2.0.0"
+    # DİKKAT: exactVersion şart. Fork, upstream groue/GRDB.swift'in `vX.Y.Z`
+    # tag'lerini de taşıyor; `from:` kullanılırsa SPM DDG'nin release'i yerine
+    # upstream'in eski tag'ini seçer (ör. from 2.0.0 → v2.10.0, 2018 sürümü).
+    # 3.0.0 = GRDB 7.4.1 + SQLCipher 4.7.0.
+    exactVersion: "3.0.0"
   SwiftSoup:
     url: https://github.com/scinfu/SwiftSoup
     from: "2.6.0"
@@ -52,6 +56,11 @@ targets:
   ShareExtension:
     type: app-extension
     platform: iOS
+    # App extension bundle id'si host app'in id'siyle prefix'lenmek ZORUNDA.
+    # Varsayılan (bundleIdPrefix + target adı) app.zihin.ShareExtension üretir ve embed adımı patlar.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.zihin.Zihin.ShareExtension
     # Extension yalnız hafif katmanı derler (spec §3.2): Data + IngestionService.
     sources:
       - ShareExtension

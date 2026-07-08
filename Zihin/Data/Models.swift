@@ -76,7 +76,7 @@ struct ItemSpace: Codable, Sendable, FetchableRecord, PersistableRecord {
     static let databaseTableName = "item_space"
 }
 
-struct MetaField: Identifiable, Codable, Sendable, FetchableRecord, MutablePersistableRecord {
+struct MetaField: Identifiable, Codable, Sendable, FetchableRecord, PersistableRecord {
     var id: String = UUID().uuidString
     var itemId: String
     var key: String
