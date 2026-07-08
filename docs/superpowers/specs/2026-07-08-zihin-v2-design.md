@@ -123,22 +123,27 @@ video transcript'leri için parçalama (chunking) zorunlu. Mevcut kod bunu bilmi
 | Benzerlik ölçütü | **Merkezlenmiş** cosine | §2.4 — ham cosine kullanılamaz |
 | Konu ataması | Prototip + merkezleme + marj eşiği | §2.5 |
 | Taksonomi | Hibrit: küratörlü çekirdek + keşfedilen | Kullanıcı seçimi |
-| Cihaz-içi LLM | FoundationModels, `#available` ile | Kullanıcı seçimi; fallback her zaman var |
-| Deployment target | **iOS 17.0 korunur** | Aşağıda |
+| Cihaz-içi LLM | FoundationModels + `availability` kontrolü | Kullanıcı seçimi; fallback her zaman var |
+| Deployment target | **iOS 26.0'a yükseltilir** | Aşağıda (2026-07-09 kararı) |
 | Graph kenarları | Yalnız konu üzerinden + manuel + kNN önerisi | Kullanıcı seçimi |
 | Reindex | Arka planda sessiz + Ayarlar'dan manuel tetik | Kullanıcı seçimi |
 
-### 3.1 Deployment target üzerine açık not
+### 3.1 Deployment target — nihai karar (2026-07-09)
 
-Kullanıcı "iOS 26 + fallback" seçti. Bunu **deployment target'ı 17.0'da tutmak ve
-FoundationModels'ı `if #available(iOS 26, *)` + `SystemLanguageModel.default.availability`
-ile kapılamak** olarak yorumluyorum.
+Kullanıcı spec incelemesinde **deployment target'ın iOS 26.0'a yükseltilmesini** seçti.
+`project.yml` `deploymentTarget.iOS = "26.0"` olur.
 
-Gerekçe: fallback yolu zaten yazılacak (Apple Intelligence donanımı olmayan iOS 26
-cihazları için). Aynı fallback, iOS 17-25 cihazlarını da bedavaya kapsar. Target'ı 26'ya
-çekmek ikinci bir kod yolu kazandırmaz, yalnız cihaz kaybettirir.
+Sonuçlar:
 
-**Bu yorum yanlışsa spec incelemesinde düzeltilmeli.**
+- FoundationModels **her zaman derlenir**; `if #available(iOS 26, *)` kapılamasına gerek
+  kalmaz. Ancak Apple Intelligence donanımı olmayan iOS 26 cihazları için
+  `SystemLanguageModel.default.availability == .available` kontrolü **korunur** — LLM yolu
+  yalnız donanım destekliyorsa devreye girer.
+- Lexicon + merkezlenmiş prototip fallback'i **birincil** kalır (§4.3): LLM yoksa etiketleme
+  ve konu ataması yine tam çalışır. Bu, Apple Intelligence'sız iOS 26 cihazlarını kapsar.
+- iOS 17-25 cihazları artık desteklenmez.
+
+*Önceki yorum (target'ı 17.0'da tutmak) bu kararla geçersiz kılındı.*
 
 ---
 
