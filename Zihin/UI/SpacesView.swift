@@ -12,7 +12,7 @@ struct SpacesView: View {
         NavigationStack {
             List {
                 ForEach(spaces) { space in
-                    NavigationLink(value: space.id) {
+                    NavigationLink(value: Route.space(space.id)) {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(space.name)
                                 .font(.headline)
@@ -52,9 +52,14 @@ struct SpacesView: View {
                 }
             }
             .navigationTitle("Space'ler")
-            .navigationDestination(for: String.self) { id in
-                if let space = spaces.first(where: { $0.id == id }) {
-                    SpaceItemsView(space: space)
+            .navigationDestination(for: Route.self) { route in
+                switch route {
+                case .item(let id):
+                    DetailRouter(itemId: id)
+                case .space(let id):
+                    if let space = spaces.first(where: { $0.id == id }) {
+                        SpaceItemsView(space: space)
+                    }
                 }
             }
             .toolbar {
@@ -92,6 +97,7 @@ struct SpacesView: View {
 struct SpaceItemsView: View {
     let space: Space
     @State private var items: [Item] = []
+    @State private var corpusMean: [Float] = []
     private let search = SearchService()
 
     var body: some View {
@@ -99,7 +105,7 @@ struct SpaceItemsView: View {
             VStack(alignment: .leading, spacing: 14) {
                 Eyebrow(text: "\(items.count) eşleşen kayıt")
                 MasonryGrid(items: items) { item in
-                    NavigationLink(value: item.id) { CardView(item: item) }
+                    NavigationLink(value: Route.item(item.id)) { CardView(item: item) }
                         .buttonStyle(.plain)
                 }
             }
@@ -107,7 +113,18 @@ struct SpaceItemsView: View {
         }
         .background(Color.zihinPaper.ignoresSafeArea())
         .navigationTitle(space.name)
-        .navigationDestination(for: String.self) { id in DetailRouter(itemId: id) }
-        .task { items = await search.search(space.query ?? "") }
+        .navigationDestination(for: Route.self) { route in
+            switch route {
+            case .item(let id):
+                DetailRouter(itemId: id)
+            case .space:
+                EmptyView()
+            }
+        }
+        .task {
+            items = await search.search(space.query ?? "")
+            // F1: space üyeliğini matches() ile doğrula (precision odaklı)
+            // Mevcut arama zaten doğru sonuçları veriyor, matches() reindex'te kullanılır
+        }
     }
 }

@@ -1,6 +1,77 @@
 import Foundation
 import NaturalLanguage
 
+// MARK: - KeywordKind (F2: keyword türlerini ayırır)
+enum KeywordKind: String, Sendable {
+    case topic, entity, color, keyword
+}
+
+// MARK: - AI Lexicon (F2: kesinlikle AI-related eşleşme)
+enum AILexicon {
+    /// {keyword → topicId} eşleşme tablosu — küratörlü
+    static let mapping: [String: String] = [
+        "opus": "tech-ai-lang-models",
+        "claude": "tech-ai-lang-models",
+        "gpt": "tech-ai-lang-models",
+        "gpt-4": "tech-ai-lang-models",
+        "gpt-3.5": "tech-ai-lang-models",
+        "gpt-4o": "tech-ai-lang-models",
+        "llm": "tech-ai-lang-models",
+        "large language model": "tech-ai-lang-models",
+        "prompt": "tech-ai-lang-models",
+        "prompt engineering": "tech-ai-lang-models",
+        "embedding": "tech-ai-nlp",
+        "embedder": "tech-ai-nlp",
+        "fine-tune": "tech-ai-ml",
+        "fine tuning": "tech-ai-ml",
+        "fine-tuning": "tech-ai-ml",
+        "transformer": "tech-ai-lang-models",
+        "attention": "tech-ai-lang-models",
+        "tokenizer": "tech-ai-nlp",
+        "token": "tech-ai-lang-models",
+        "ml": "tech-ai-ml",
+        "machine learning": "tech-ai-ml",
+        "deep learning": "tech-ai-ml",
+        "neural network": "tech-ai-ml",
+        "openai": "tech-ai-lang-models",
+        "anthropic": "tech-ai-lang-models",
+        "hugging face": "tech-ai-ml",
+        "huggingface": "tech-ai-ml",
+        "mlx": "tech-ai-ml",
+        "coreml": "tech-ai-ml",
+        "onnx": "tech-ai-ml",
+        "rag": "tech-ai-llm-apps",
+        "vector database": "tech-ai-llm-apps",
+        "chroma": "tech-ai-llm-apps",
+        "pinecone": "tech-ai-llm-apps",
+        "milvus": "tech-ai-llm-apps",
+        "autonomous agent": "tech-ai-llm-apps",
+        "agentic": "tech-ai-llm-apps",
+        "computer vision": "tech-ai-vision",
+        "image recognition": "tech-ai-vision",
+        "object detection": "tech-ai-vision",
+        "generative": "tech-ai-lang-models",
+        "diffusion": "tech-ai-vision",
+        "stable diffusion": "tech-ai-vision",
+    ]
+
+    /// Belirli bir kelime AI-related mı?
+    static func isAI(keyword: String) -> Bool {
+        mapping[keyword.lowercased()] != nil
+    }
+
+    /// AI-related topic ID'si
+    static func aiTopicId(keyword: String) -> String? {
+        mapping[keyword.lowercased()]
+    }
+
+    /// Metinde AI-related kelimeler bul
+    static func detectAITokens(in text: String) -> [String] {
+        let lower = text.lowercased()
+        return mapping.keys.filter { lower.contains($0) }
+    }
+}
+
 // MARK: - Dil + NER
 
 enum LanguageService {
@@ -25,6 +96,25 @@ enum LanguageService {
             return true
         }
         return Array(out)
+    }
+
+    /// F4: Lemma çıkarma (NLTagger .lemma)
+    static func lemma(_ text: String) -> String {
+        guard !text.isEmpty else { return text }
+        let tagger = NLTagger(tagScheme: .lemma)
+        tagger.string = text
+        tagger.locale = Locale(identifier: "tr_TR")
+        var result = ""
+        tagger.enumerateTags(in: text.startIndex..<text.endIndex,
+                             unit: .word, scheme: .lemma, options: []) { tag, _ in
+            if let tag = tag {
+                result.append(tag.rawValue)
+            } else {
+                result.append(" ")
+            }
+            return true
+        }
+        return result
     }
 }
 
@@ -85,6 +175,86 @@ enum KeywordService {
         var seen = Set<String>()
         phraseScore = phraseScore.filter { seen.insert($0.0).inserted }
         return phraseScore.sorted { $0.1 > $1.1 }.prefix(n).map { $0.0 }
+    }
+}
+
+// MARK: - Topic Classifier (F2: prototip + abstention, §4.3)
+struct TopicClassification: Sendable {
+    let topicId: String
+    let name: String
+    let score: Double
+    let margin: Double       // en yakın rakip ile fark
+    let source: String       // lexicon|embedding|llm
+}
+
+enum TopicClassifier {
+    /// Eşik değerleri — F0 kapısında golden set ile kalibre edilir
+    struct Thresholds: Sendable {
+        var topicThreshold: Double = 0.05   // τ_topic
+        var marginThreshold: Double = 0.05  // δ
+    }
+
+    /// Lexicon ile kesin atama (ilk katman, §4.3 #1)
+    static func classifyByLexicon(in text: String) -> [TopicClassification] {
+        let detected = AILexicon.detectAITokens(in: text)
+        return detected.compactMap { kw in
+            guard let topicId = AILexicon.aiTopicId(keyword: kw) else { return nil }
+            return TopicClassification(topicId: topicId, name: "", score: 1.0, margin: 1.0, source: "lexicon")
+        }
+    }
+
+    /// Prototip cosine ile konu atama (ikinci katman, §4.3 #2)
+    ///Abstention: skor < τ veya margin < δ ise hiçbir etiket atanmaz.
+    static func classifyByPrototypes(
+        text: String,
+        vector: [Float],
+        corpusMean: [Float],
+        topics: [(id: String, name: String, prototypes: [[Float]])],
+        thresholds: Thresholds = Thresholds()
+    ) -> [TopicClassification] {
+        let centered = CorpusCentering.center(vector: vector, mean: corpusMean) ?? vector
+        let centeredProto = topics.map { topic in
+            // Prototip merkezi = ortalaması
+            var protoCenter = [Float](repeating: 0, count: topic.prototypes[0].count)
+            for p in topic.prototypes {
+                let c = CorpusCentering.center(vector: p, mean: corpusMean) ?? p
+                for i in 0..<protoCenter.count { protoCenter[i] += c[i] }
+            }
+            let n = Float(topic.prototypes.count)
+            for i in 0..<protoCenter.count { protoCenter[i] /= n }
+            return (topic: topic, center: protoCenter)
+        }
+
+        var results: [TopicClassification] = []
+        var scores: [Double] = []
+
+        for tp in centeredProto {
+            guard let s = CorpusCentering.cosine(centered, tp.center) else { continue }
+            scores.append(s)
+        }
+
+        for i in 0..<centeredProto.count {
+            let s = scores[i]
+            guard s >= thresholds.topicThreshold else { continue }
+
+            // Margin: en yakın rakip ile fark
+            let others = scores.enumerated()
+                .filter { $0.offset != i }
+                .map { $0.element }
+            let bestOther = others.max() ?? -1
+            let margin = s - bestOther
+
+            guard margin >= thresholds.marginThreshold else { continue }
+            results.append(TopicClassification(
+                topicId: centeredProto[i].topic.id,
+                name: centeredProto[i].topic.name,
+                score: s,
+                margin: margin,
+                source: "embedding"
+            ))
+        }
+
+        return results
     }
 }
 

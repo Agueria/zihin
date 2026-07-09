@@ -31,13 +31,62 @@ actor EnrichmentQueue {
         }
     }
 
+    /// F0: reindex — tüm item'ları yeniden işle
+    func reindex() async {
+        guard !running else { return }
+        running = true
+        defer { running = false }
+
+        // Tüm item'ları pending yap
+        try? repo.resetEmbeddingMetadata()
+        let items = (try? repo.timeline()) ?? []
+
+        for var item in items {
+            try? repo.setStatus(.enriching, id: item.id)
+            do {
+                let tags = try await enrich(&item)
+                item.status = .ready
+                try repo.save(&item)
+                try repo.attachTags(Array(Set(tags)), to: item.id)
+            } catch {
+                try? repo.setStatus(.pending, id: item.id, bumpAttempts: true)
+            }
+        }
+    }
+
     private func enrich(_ item: inout Item) async throws -> [String] {
         switch item.type {
         case .note, .quote:
             let text = item.textContent ?? ""
             item.lang = LanguageService.dominantLanguage(text)
+            // F0: lemma
+            item.lemmaText = LanguageService.lemma(text)
             item.summary = SummaryService.summarize(text, n: 2)
-            item.embedding = EmbeddingService.embed(text).map(VectorStore.encode)
+
+            // F0: chunking + embedding
+            let chunks = Chunker.chunk(text)
+            var chunkVectors: [(idx: Int, vector: Data)] = []
+            var allVecs: [[Float]] = []
+            for (i, chunk) in chunks.enumerated() {
+                if let vec = EmbeddingService.embed(chunk) {
+                    for (j, v) in vec.enumerated() {
+                        chunkVectors.append((i * 100 + j, VectorStore.encode(v)))
+                        allVecs.append(v)
+                    }
+                }
+            }
+            // Doküman ortalaması (konu ataması + graph için)
+            if let mean = CorpusCentering.mean(vectors: allVecs) {
+                item.embedding = VectorStore.encode(mean)
+            }
+            // Chunk vektörlerini kaydet
+            try repo.saveChunks(itemId: item.id, chunks: chunkVectors)
+
+            // F0: model versiyonlama
+            let info = EmbeddingService.currentModelInfo
+            item.embeddingModel = info.model
+            item.embeddingRevision = info.revision
+
             return LanguageService.namedEntities(text) + KeywordService.keywords(text)
 
         case .image:
@@ -51,6 +100,11 @@ actor EnrichmentQueue {
             item.lang = LanguageService.dominantLanguage(v.ocrText)
             let base = ([v.ocrText] + v.classifications).joined(separator: " ")
             item.embedding = EmbeddingService.embed(base).map(VectorStore.encode)
+
+            let info = EmbeddingService.currentModelInfo
+            item.embeddingModel = info.model
+            item.embeddingRevision = info.revision
+
             return v.classifications + item.colors + LanguageService.namedEntities(v.ocrText)
 
         case .link:
@@ -70,6 +124,11 @@ actor EnrichmentQueue {
             let base = [r.transcript, r.frameText].joined(separator: " ")
             item.lang = LanguageService.dominantLanguage(base)
             item.embedding = EmbeddingService.embed(base).map(VectorStore.encode)
+
+            let info = EmbeddingService.currentModelInfo
+            item.embeddingModel = info.model
+            item.embeddingRevision = info.revision
+
             return r.classifications + r.colors
                 + LanguageService.namedEntities(base) + KeywordService.keywords(base)
 
@@ -77,9 +136,15 @@ actor EnrichmentQueue {
             guard let path = item.assetPath else { throw EnrichError.badAsset }
             let text = PDFTextExtractor.extract(url: AssetStore.url(for: path))
             item.textContent = text
+            item.lemmaText = LanguageService.lemma(text)
             item.summary = SummaryService.summarize(text, n: 3)
             item.lang = LanguageService.dominantLanguage(text)
             item.embedding = EmbeddingService.embed(text).map(VectorStore.encode)
+
+            let info = EmbeddingService.currentModelInfo
+            item.embeddingModel = info.model
+            item.embeddingRevision = info.revision
+
             return LanguageService.namedEntities(text) + KeywordService.keywords(text)
         }
     }

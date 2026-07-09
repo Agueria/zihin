@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Zihin Ağı (E2): kayıtların otomatik bağlantı haritası.
-/// Menekşe kenar = anlam bağı (embedding), altın kenar = ortak etiket.
+/// Zihin Ağı (F3): kavram grafiği — bipartite model (item-topic-profile)
+/// Menekşe kenar = anlam/topic bağı, altın kenar = etiket, yeşil = manuel
 /// Sürükle: kaydır · iki parmak: yakınlaştır · düğüme dokun: önizleme + git.
 struct GraphView: View {
     @State private var data: KnowledgeGraphData?
@@ -11,6 +11,8 @@ struct GraphView: View {
     @State private var baseScale: CGFloat = 1
     @State private var offset: CGSize = .zero
     @State private var baseOffset: CGSize = .zero
+    @State private var showingSuggestions = false
+    @State private var suggestions: [GraphEdge] = []
 
     var body: some View {
         Group {
@@ -44,6 +46,36 @@ struct GraphView: View {
             data = built
             building = false
         }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    if let node = selected {
+                        Task {
+                            suggestions = try? KnowledgeGraph.suggestConnections(for: node.id)
+                            showingSuggestions = true
+                        }
+                    }
+                } label: {
+                    Image(systemName: "lightbulb")
+                }
+                .disabled(selected == nil)
+                .accessibilityLabel("Bağlantı öner")
+            }
+        }
+        .alert("Bağlantı önerileri", isPresented: $showingSuggestions) {
+            ForEach(suggestions, id: \.id) { edge in
+                Button("Kaydet") {
+                    try? KnowledgeGraph.addManualEdge(a: edge.a, b: edge.b)
+                    if let d = data {
+                        let built = try? KnowledgeGraph.build()
+                        data = built
+                    }
+                }
+            }
+            Button("Geri al", role: .cancel) { suggestions = [] }
+        } message: {
+            Text("Seçilen düğüme benzer kayıtlar bulundu. Bağlantıları kaydetmek ister misin?")
+        }
     }
 
     // MARK: Çizim
@@ -61,9 +93,7 @@ struct GraphView: View {
                         var path = Path()
                         path.move(to: pa)
                         path.addLine(to: pb)
-                        let color: Color = e.kind == .semantic
-                            ? .zihinViolet.opacity(0.20 + e.weight * 0.25)
-                            : .zihinGold.opacity(0.25 + e.weight * 0.25)
+                        let color: Color = edgeColor(e)
                         ctx.stroke(path, with: .color(color),
                                    lineWidth: 0.6 + e.weight * 1.4)
                     }
@@ -76,6 +106,15 @@ struct GraphView: View {
                                        with: .color(.zihinGold), lineWidth: 2)
                         }
                         ctx.fill(Path(ellipseIn: rect), with: .color(nodeColor(n.type)))
+                    }
+                    // Önerilen kenarlar: soluk kesikli
+                    for se in data.suggestedEdges {
+                        guard let pa = pos[se.a], let pb = pos[se.b] else { continue }
+                        var path = Path()
+                        path.move(to: pa)
+                        path.addLine(to: pb)
+                        ctx.stroke(path, with: .color(.green.opacity(0.25)),
+                                   lineWidth: 1.0, style: StrokeStyle(lineDash: [4, 4]))
                     }
                 }
                 .contentShape(Rectangle())
@@ -122,13 +161,24 @@ struct GraphView: View {
         return best?.0
     }
 
-    private func nodeColor(_ type: ItemType) -> Color {
+    private func nodeColor(_ type: GraphNode.NodeType) -> Color {
         switch type {
-        case .note, .quote: .zihinGold
-        case .image: .blue
-        case .link: .zihinViolet
-        case .video: .pink
-        case .pdf: .brown
+        case .item: .zihinGold
+        case .topic: .zihinViolet
+        case .profile: .mint
+        }
+    }
+
+    private func edgeColor(_ e: GraphEdge) -> Color {
+        switch e.kind {
+        case .semantic:
+            .zihinViolet.opacity(0.20 + e.weight * 0.25)
+        case .tag:
+            .zihinGold.opacity(0.25 + e.weight * 0.25)
+        case .manual:
+            .green.opacity(0.35 + e.weight * 0.25)
+        case .hierarchical:
+            .gray.opacity(0.2)
         }
     }
 
@@ -139,16 +189,21 @@ struct GraphView: View {
             HStack(spacing: 5) {
                 Capsule().fill(Color.zihinViolet.opacity(0.5))
                     .frame(width: 18, height: 3)
-                Text("anlam bağı")
+                Text("konu bağı")
             }
             HStack(spacing: 5) {
                 Capsule().fill(Color.zihinGold.opacity(0.6))
                     .frame(width: 18, height: 3)
                 Text("ortak etiket")
             }
+            HStack(spacing: 5) {
+                Capsule().fill(Color.green.opacity(0.5))
+                    .frame(width: 18, height: 3)
+                Text("manuel")
+            }
             Spacer()
             if data.isolatedCount > 0 {
-                Text("+\(data.isolatedCount) bağsız kayıt gizli")
+                Text("+\(data.isolatedCount) bağsız kayıt")
             }
         }
         .font(.caption2)
@@ -172,13 +227,15 @@ struct GraphView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            NavigationLink(value: node.id) {
-                Text("Aç")
-                    .font(.subheadline.weight(.semibold))
+            if node.type == .item {
+                NavigationLink(value: Route.item(node.id)) {
+                    Text("Aç")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
+                .controlSize(.small)
             }
-            .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.capsule)
-            .controlSize(.small)
         }
         .padding(12)
         .zihinCard()

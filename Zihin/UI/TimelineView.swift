@@ -4,6 +4,7 @@ struct TimelineView: View {
     @EnvironmentObject var store: LibraryStore
     @State private var showNewNote = false
     @State private var noteText = ""
+    @State private var showEditItem: Item?
 
     var body: some View {
         NavigationStack {
@@ -15,7 +16,7 @@ struct TimelineView: View {
                         Eyebrow(text: "\(store.items.count) kayıt · hepsi cihazında")
                             .padding(.horizontal, 2)
                         MasonryGrid(items: store.items) { item in
-                            NavigationLink(value: item.id) { CardView(item: item) }
+                            NavigationLink(value: Route.item(item.id)) { CardView(item: item) }
                                 .buttonStyle(.plain)
                                 .contextMenu { cardMenu(item) }
                         }
@@ -25,7 +26,14 @@ struct TimelineView: View {
             }
             .background(Color.zihinPaper.ignoresSafeArea())
             .navigationTitle("Zihin")
-            .navigationDestination(for: String.self) { id in DetailRouter(itemId: id) }
+            .navigationDestination(for: Route.self) { route in
+                switch route {
+                case .item(let id):
+                    DetailRouter(itemId: id)
+                case .space:
+                    EmptyView()
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     NavigationLink { GraphView() } label: {
@@ -45,6 +53,12 @@ struct TimelineView: View {
                     store.addNote(noteText); noteText = ""; showNewNote = false
                 }
             }
+            .sheet(item: $showEditItem) { item in
+                EditNoteSheet(item: item) { updatedItem in
+                    showEditItem = nil
+                    store.reload()
+                }
+            }
             .refreshable { store.reload() }
         }
     }
@@ -52,6 +66,9 @@ struct TimelineView: View {
     @ViewBuilder private func cardMenu(_ item: Item) -> some View {
         Button(item.isPinned ? "Sabitlemeyi kaldır" : "Sabitle", systemImage: "pin") {
             store.togglePin(item)
+        }
+        Button("Düzenle", systemImage: "pencil") {
+            showEditItem = item
         }
         if item.status == .failed {
             Button("Yeniden işle", systemImage: "arrow.clockwise") {
@@ -233,22 +250,68 @@ struct EmptyMind: View {
 
 struct NewNoteSheet: View {
     @Binding var text: String
+    @State private var title = ""
     var onSave: () -> Void
     var body: some View {
         NavigationStack {
-            TextEditor(text: $text)
-                .fontDesign(.serif)
-                .scrollContentBackground(.hidden)
-                .padding(14)
-                .background(Color.zihinParchment)
-                .navigationTitle("Yeni Not")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Kaydet", action: onSave)
-                            .disabled(text.trimmingCharacters(in: .whitespaces).isEmpty)
+            Form {
+                TextField("Başlık (isteğe bağlı)", text: $title)
+                TextEditor(text: $text)
+                    .fontDesign(.serif)
+                    .scrollContentBackground(.hidden)
+                    .padding(14)
+                    .background(Color.zihinParchment)
+            }
+            .navigationTitle("Yeni Not")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Kaydet", action: onSave)
+                        .disabled(text.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
+/// F1: Düzenleme sayfası
+struct EditNoteSheet: View {
+    let item: Item
+    @State private var title: String
+    @State private var text: String
+    var onSave: (Item) -> Void
+
+    init(item: Item, onSave: @escaping (Item) -> Void) {
+        self.item = item
+        _title = State(initialValue: item.title ?? "")
+        _text = State(initialValue: item.textContent ?? "")
+        self.onSave = onSave
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("Başlık", text: $title)
+                TextEditor(text: $text)
+                    .fontDesign(.serif)
+                    .scrollContentBackground(.hidden)
+                    .padding(14)
+                    .background(Color.zihinParchment)
+            }
+            .navigationTitle("Düzenle")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Kaydet") {
+                        try? IngestionService.updateContent(itemId: item.id, title: title, text: text)
+                        onSave(item)
                     }
                 }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("İptal") { /* dismiss */ }
+                }
+            }
         }
         .presentationDetents([.medium, .large])
     }

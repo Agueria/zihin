@@ -13,7 +13,7 @@ struct SearchView: View {
                             .padding(.top, 60)
                     } else {
                         MasonryGrid(items: results) { item in
-                            NavigationLink(value: item.id) { CardView(item: item) }
+                            NavigationLink(value: Route.item(item.id)) { CardView(item: item) }
                                 .buttonStyle(.plain)
                         }
                         .padding(14)
@@ -27,7 +27,14 @@ struct SearchView: View {
             }
             .background(Color.zihinPaper.ignoresSafeArea())
             .navigationTitle("Ara")
-            .navigationDestination(for: String.self) { id in DetailRouter(itemId: id) }
+            .navigationDestination(for: Route.self) { route in
+                switch route {
+                case .item(let id):
+                    DetailRouter(itemId: id)
+                case .space:
+                    EmptyView()
+                }
+            }
             .searchable(text: $query, prompt: "mavi sneaker, dün, react…")
             .onChange(of: query) { _, q in store.search(q) }
         }

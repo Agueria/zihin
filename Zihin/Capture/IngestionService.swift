@@ -1,13 +1,5 @@
 import Foundation
 
-enum DetectedContent: Sendable {
-    case url(URL)
-    case image(Data)
-    case video(URL)
-    case pdf(URL)
-    case text(String)
-}
-
 /// HAFİF capture (spec §3.2): ham veriyi `pending` Item olarak yazar, ağır iş yapmaz.
 /// Hem Share Extension hem ana app kullanır. Enrichment: EnrichmentQueue (yalnız ana app).
 enum IngestionService {
@@ -18,7 +10,7 @@ enum IngestionService {
         switch content {
         case .text(let s):
             item = Item(type: .note, textContent: s)
-            item.title = String(s.prefix(80))
+            // F1: başlık prefix(80) halesi KALDIRILDI — title boş, görünümde türetilir
         case .url(let u):
             item = Item(type: .link, url: u.absoluteString)
             item.title = u.host
@@ -36,5 +28,11 @@ enum IngestionService {
         }
         try repo.save(&item)
         return item
+    }
+
+    /// F1: içerik güncelleme
+    static func updateContent(itemId: String, title: String?, text: String?) throws {
+        let repo = ItemRepository()
+        try repo.updateContent(id: itemId, title: title, text: text)
     }
 }

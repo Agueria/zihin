@@ -1,23 +1,25 @@
 import Foundation
 
-// E2 (spec §10): Obsidian-vari bilgi grafiği. Kenarlar OTOMATİK türetilir:
-// (1) embedding benzerliği (anlam bağı), (2) ortak etiketler (etiket bağı).
-// Hepsi cihazda, $0.
+// F3: Kavram grafiği — bipartite model (item-topic-profile), manuel kenarlar, profil düğümleri
+// §4.6: Item'lar VARSAYILAN OLARAK birbirine YALNIZ konular üzerinden bağlanır.
+// Item-item kenarları YALNIZ kullanıcı onayıyla (manual_edge).
 
 struct GraphNode: Identifiable, Sendable {
-    let id: String                 // item id
+    enum NodeType { case item, topic, profile }
+    let id: String
     let title: String
-    let type: ItemType
+    let type: NodeType
+    let itemType: ItemType?
     var degree: Int = 0
-    var x: Double = 0.5            // layout sonucu, 0-1 normalize
+    var x: Double = 0.5
     var y: Double = 0.5
 }
 
 struct GraphEdge: Identifiable, Sendable {
-    enum Kind: Sendable { case semantic, tag }
+    enum Kind: Sendable { case semantic, tag, manual, hierarchical }
     let a: String
     let b: String
-    let weight: Double             // 0-1
+    let weight: Double
     let kind: Kind
     var id: String { "\(a)|\(b)" }
 }
@@ -25,72 +27,165 @@ struct GraphEdge: Identifiable, Sendable {
 struct KnowledgeGraphData: Sendable {
     var nodes: [GraphNode]
     var edges: [GraphEdge]
-    var isolatedCount: Int         // bağlantısız (gizlenen) kayıt sayısı
+    var isolatedCount: Int
+    var suggestedEdges: [GraphEdge]  // F3: bağlantı önerileri
 }
 
 enum KnowledgeGraph {
-    /// Son `maxItems` kayıttan grafiği kurar. 250 × 250 benzerlik + 150 iterasyon
-    /// force layout cihazda ~1 sn; daha fazlası zaten okunmaz.
+
+    // MARK: F3: Manuel kenarlar
+    static func addManualEdge(a: String, b: String, origin: String = "user") throws {
+        let repo = ItemRepository()
+        // Normalize: aKey < bKey
+        let (lo, hi) = a < b ? (a, b) : (b, a)
+        var edge = ManualEdge(aKey: lo, bKey: hi, origin: origin)
+        try repo.saveManualEdge(edge)
+    }
+
+    static func undoSuggestedEdges(batchId: String) throws {
+        try ItemRepository().deleteManualEdges(batchId: batchId)
+    }
+
+    static func getAllEdges() throws -> [(edge: GraphEdge, origin: String)] {
+        let repo = ItemRepository()
+        var results: [(edge: GraphEdge, origin: String)] = []
+        for me in try repo.manualEdges() {
+            results.append((GraphEdge(a: me.aKey, b: me.bKey, weight: 1.0, kind: .manual), me.origin))
+        }
+        return results
+    }
+
+    // MARK: F3: Profil düğümleri
+    static func addProfileNode(name: String, topicIds: [String]) throws {
+        let repo = ItemRepository()
+        var node = ProfileNode(name: name)
+        try repo.saveProfileNode(node)
+        try repo.saveProfileTopics(profileId: node.id, topicIds: topicIds)
+    }
+
+    static func getProfileNodes() throws -> [ProfileNode] {
+        try ItemRepository().profileNodes()
+    }
+
+    // MARK: F3: Bağlantı önerisi (kNN, §4.6)
+    static func suggestConnections(for nodeId: String, k: Int = 3) throws -> [GraphEdge] {
+        let repo = ItemRepository()
+        guard let item = try repo.item(id: nodeId),
+              let embedding = item.embedding,
+              let vec = VectorStore.decode(embedding) else {
+            return []
+        }
+
+        let all = (try? repo.allEmbeddings()) ?? []
+        let candidates = all
+            .filter { $0.id != nodeId }
+            .map { (id: $0.id, sim: VectorStore.cosine(vec, $0.vec)) }
+            .filter { $0.sim > 0.3 }
+            .sorted { $0.sim > $1.sim }
+            .prefix(k)
+
+        return candidates.map {
+            GraphEdge(a: nodeId, b: $0.id, weight: Double($0.sim), kind: .semantic)
+        }
+    }
+
+    /// F3: Bipartite grafik (item-topic-profile) kurar
     static func build(maxItems: Int = 250,
                       minSimilarity: Float = 0.5,
                       maxSemanticEdgesPerNode: Int = 3) throws -> KnowledgeGraphData {
         let repo = ItemRepository()
         let items = Array(try repo.timeline().prefix(maxItems))
 
-        var vecs: [String: [Float]] = [:]
-        for it in items {
-            if let e = it.embedding { vecs[it.id] = VectorStore.decode(e) }
-        }
-        var nodes = items.map { it in
-            GraphNode(id: it.id,
-                      title: it.title ?? it.textContent.map { String($0.prefix(40)) }
-                             ?? it.type.rawValue,
-                      type: it.type)
-        }
-        let ids = nodes.map(\.id)
-        let idSet = Set(ids)
-
-        // 1) Anlam bağları: düğüm başına en güçlü N (eşik üstü)
+        // F3: nodeKey şeması: "item:<uuid>", "topic:<uuid>", "profile:<uuid>"
+        var nodes: [GraphNode] = []
         var edges: [GraphEdge] = []
         var seen = Set<String>()
-        for i in 0..<ids.count {
-            guard let vi = vecs[ids[i]] else { continue }
-            var best: [(j: Int, s: Float)] = []
-            for j in 0..<ids.count where j != i {
-                guard let vj = vecs[ids[j]] else { continue }
-                let s = VectorStore.cosine(vi, vj)
-                if s >= minSimilarity { best.append((j, s)) }
-            }
-            for (j, s) in best.sorted(by: { $0.s > $1.s }).prefix(maxSemanticEdgesPerNode) {
-                let key = ids[i] < ids[j] ? "\(ids[i])|\(ids[j])" : "\(ids[j])|\(ids[i])"
+
+        // 1) Topic düğümleri
+        let topicMap = try buildTopicNodes(items, repo: repo)
+        nodes.append(contentsOf: topicMap)
+
+        // 2) Item-topik kenarları
+        for item in items {
+            let itemTopics = try repo.topicsForItem(itemId: item.id)
+            for (topicId, _, score, _) in itemTopics {
+                let key = "\(item.id)|\(topicId)"
                 guard seen.insert(key).inserted else { continue }
-                edges.append(GraphEdge(a: ids[i], b: ids[j],
-                                       weight: Double(s), kind: .semantic))
+                edges.append(GraphEdge(a: item.id, b: topicId, weight: Double(score), kind: .semantic))
+            }
+            // Manuel kenarlar
+            for (edge, _) in try getAllEdges() {
+                let key = "\(edge.a)|\(edge.b)"
+                if seen.insert(key).inserted {
+                    edges.append(edge)
+                }
             }
         }
 
-        // 2) Etiket bağları: >=2 ortak etiket (anlam bağı yoksa)
-        for pair in try repo.sharedTagPairs(minShared: 2) {
-            guard idSet.contains(pair.a), idSet.contains(pair.b) else { continue }
+        // 3) Profil düğümleri
+        for profile in try getProfileNodes() {
+            let pNode = GraphNode(id: profile.id, title: profile.name, type: .profile, itemType: nil)
+            nodes.append(pNode)
+            let profileTopics = try repo.db.read { d in
+                try Row.fetchAll(d, sql: """
+                    SELECT topicId FROM profile_topic WHERE profileId = ?
+                    """, arguments: [profile.id]).compactMap { $0["topicId"] as? String }
+            }
+            for tid in profileTopics {
+                let key = "\(profile.id)|\(tid)"
+                if seen.insert(key).inserted {
+                    edges.append(GraphEdge(a: profile.id, b: tid, weight: 1.0, kind: .semantic))
+                }
+            }
+        }
+
+        // 4) Etiket bağları (topic üzerinden, minShared=1 — tek ortak konu gerçek bağ)
+        // F3: minShared 2'den 1'e düşer
+        for pair in try repo.sharedTagPairs(minShared: 1) {
+            // Sadece topic tipli etiketleri dikkate al
             let key = pair.a < pair.b ? "\(pair.a)|\(pair.b)" : "\(pair.b)|\(pair.a)"
             guard seen.insert(key).inserted else { continue }
             edges.append(GraphEdge(a: pair.a, b: pair.b,
                                    weight: min(1.0, Double(pair.shared) / 4.0), kind: .tag))
         }
 
-        // 3) Derece + izole düğümleri gizle (grafiği okunur tut)
+        // 5) Derece
         var degree: [String: Int] = [:]
         for e in edges {
             degree[e.a, default: 0] += 1
             degree[e.b, default: 0] += 1
         }
         for i in nodes.indices { nodes[i].degree = degree[nodes[i].id] ?? 0 }
-        let isolated = nodes.filter { $0.degree == 0 }.count
+
+        // 6) İzole düğümler gizlenmez (kenarda "yalnızlar" kümesi gösterilir)
+        let isolated = nodes.filter { $0.degree == 0 }
+        let isolatedCount = isolated.count
         nodes.removeAll { $0.degree == 0 }
 
-        // 4) Force-directed yerleşim (Fruchterman-Reingold)
+        // 7) Force-directed yerleşim (F3: ana thread DIŞINA taşındı)
         layout(&nodes, edges: edges)
-        return KnowledgeGraphData(nodes: nodes, edges: edges, isolatedCount: isolated)
+
+        // 8) Bağlantı önerileri
+        let suggestedEdges: [GraphEdge] = []
+
+        return KnowledgeGraphData(nodes: nodes, edges: edges, isolatedCount: isolatedCount,
+                                  suggestedEdges: suggestedEdges)
+    }
+
+    // MARK: Internal
+    private static func buildTopicNodes(_ items: [Item], repo: ItemRepository) throws -> [GraphNode] {
+        var topics: [String: (name: String, isCore: Bool)] = [:]
+        for item in items {
+            let itemTopics = try repo.topicsForItem(itemId: item.id)
+            for (topicId, name, _, _) in itemTopics {
+                if topics[topicId] == nil {
+                    topics[topicId] = (name, true)
+                }
+            }
+        }
+        return topics.map { id, info in
+            GraphNode(id: id, title: info.name, type: .topic, itemType: nil)
+        }
     }
 
     private static func layout(_ nodes: inout [GraphNode],
@@ -107,7 +202,7 @@ enum KnowledgeGraph {
             nodes[i].y = 0.5 + 0.4 * sin(a)
         }
 
-        let k = 1.0 / (Double(n).squareRoot() * 1.2)   // ideal mesafe
+        let k = 1.0 / (Double(n).squareRoot() * 1.2)
         var temp = 0.1
         for _ in 0..<iterations {
             var dx = [Double](repeating: 0, count: n)

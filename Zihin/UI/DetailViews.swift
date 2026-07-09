@@ -150,7 +150,7 @@ struct ImageDetailView: View {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 10) {
                                 ForEach(similar) { s in
-                                    NavigationLink(value: s.id) {
+                                    NavigationLink(value: Route.item(s.id)) {
                                         LocalImage(relative: s.assetPath ?? s.posterPath)
                                             .scaledToFill()
                                             .frame(width: 110, height: 110)

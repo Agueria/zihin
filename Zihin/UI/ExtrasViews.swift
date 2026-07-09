@@ -36,7 +36,7 @@ struct SerendipityView: View {
                         ForEach(Array(deck.prefix(3).enumerated().reversed()),
                                 id: \.element.id) { index, item in
                             if index == 0 {
-                                NavigationLink(value: item.id) {
+                                NavigationLink(value: Route.item(item.id)) {
                                     CardView(item: item).frame(maxWidth: 300)
                                 }
                                 .buttonStyle(.plain)
@@ -85,7 +85,14 @@ struct SerendipityView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.zihinPaper.ignoresSafeArea())
             .navigationTitle("Keşfet")
-            .navigationDestination(for: String.self) { id in DetailRouter(itemId: id) }
+            .navigationDestination(for: Route.self) { route in
+                switch route {
+                case .item(let id):
+                    DetailRouter(itemId: id)
+                case .space:
+                    EmptyView()
+                }
+            }
             .toolbar {
                 Button {
                     deck = (try? repo.randomItems(10)) ?? []
@@ -109,6 +116,7 @@ struct SettingsView: View {
     @State private var syncing = false
     @State private var showFolderPicker = false
     @State private var exportMessage: String?
+    @State private var reindexing = false
 
     var body: some View {
         NavigationStack {
@@ -134,6 +142,26 @@ struct SettingsView: View {
                     Text("Eşitleme")
                 } footer: {
                     Text("Veri senin iCloud'unda (private database) durur; bize hiçbir şey gelmez. Görsel/video dosyaları v1.1'de eşitlenecek.")
+                }
+
+                Section("İndeksleme") {
+                    Button {
+                        reindexing = true
+                        Task {
+                            await EnrichmentQueue.shared.reindex()
+                            reindexing = false
+                        }
+                    } label: {
+                        HStack {
+                            Label("Yeniden indeksle", systemImage: "arrow.clockwise")
+                            if reindexing { Spacer(); ProgressView() }
+                        }
+                    }
+                    .disabled(reindexing)
+                } header: {
+                    Text("İçerik işleme")
+                } footer: {
+                    Text("Tüm kayıtların embedding'leri sıfırlanır ve yeniden üretilir. Bu işlem uzun sürebilir.")
                 }
 
                 Section {
