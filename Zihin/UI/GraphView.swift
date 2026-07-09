@@ -13,6 +13,7 @@ struct GraphView: View {
     @State private var baseOffset: CGSize = .zero
     @State private var showingSuggestions = false
     @State private var suggestions: [GraphEdge] = []
+    @State private var currentBatchId: String?
 
     var body: some View {
         Group {
@@ -51,7 +52,8 @@ struct GraphView: View {
                 Button {
                     if let node = selected {
                         Task {
-                            suggestions = try? KnowledgeGraph.suggestConnections(for: node.id)
+                            let cm = try? SearchService().corpusMean()
+                            suggestions = try? KnowledgeGraph.suggestConnections(for: node.id, corpusMean: cm)
                             showingSuggestions = true
                         }
                     }
@@ -63,16 +65,29 @@ struct GraphView: View {
             }
         }
         .alert("Bağlantı önerileri", isPresented: $showingSuggestions) {
-            ForEach(suggestions, id: \.id) { edge in
+            if !suggestions.isEmpty {
                 Button("Kaydet") {
-                    try? KnowledgeGraph.addManualEdge(a: edge.a, b: edge.b)
-                    if let d = data {
-                        let built = try? KnowledgeGraph.build()
-                        data = built
+                    let batchId = UUID().uuidString
+                    do {
+                        try KnowledgeGraph.saveSuggestedEdges(suggestions, batchId: batchId)
+                        currentBatchId = batchId
+                        if let d = data {
+                            let built = try? KnowledgeGraph.build()
+                            data = built
+                        }
+                    } catch {
+                        print("[Graph] Kenar kaydedilemedi: \(error)")
                     }
+                    suggestions = []
                 }
             }
-            Button("Geri al", role: .cancel) { suggestions = [] }
+            Button("Geri al", role: .cancel) {
+                if let batchId = currentBatchId {
+                    try? KnowledgeGraph.undoSuggestedEdges(batchId: batchId)
+                    currentBatchId = nil
+                }
+                suggestions = []
+            }
         } message: {
             Text("Seçilen düğüme benzer kayıtlar bulundu. Bağlantıları kaydetmek ister misin?")
         }

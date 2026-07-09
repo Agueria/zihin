@@ -44,18 +44,14 @@ final class ContextualProvider: EmbeddingProvider, @unchecked Sendable {
         return results.isEmpty ? nil : results
     }
 
-    // Request asset download if not yet available
+    /// Tüm varlıklar indirilene kadar bekler (assets talep üzerine gelir).
+    /// İndirme başarısız olursa yalnızca FTS5 ile çalışmaya devam eder.
     func ensureAssets() async {
         guard let ce = getOrCreateContextualEmbedding() else { return }
+        guard !ce.hasAvailableAssets else { return }
         await withCheckedContinuation { cont in
             ce.requestAssets { available in
-                guard available else { cont.resume(); return }
-                // Verify availability
-                if ce.hasAvailableAssets {
-                    cont.resume()
-                } else {
-                    cont.resume()
-                }
+                cont.resume()
             }
         }
     }
@@ -66,7 +62,7 @@ final class ContextualProvider: EmbeddingProvider, @unchecked Sendable {
 
         if let existing = contextualEmbedding { return existing }
 
-        let ce = NLContextualEmbedding(language: .init(identifier: .english))
+        let ce = NLContextualEmbedding(language: .init(identifier: .turkish))
         // Verify model is available
         guard ce.hasAvailableAssets else {
             contextualEmbedding = ce
@@ -322,3 +318,75 @@ enum EmbeddingService {
         (provider.modelIdentifier, provider.revision, provider.dimension)
     }
 }
+
+// MARK: - Optional model download (F5)
+
+enum AdvancedModelDownloader: Sendable {
+    /// ~80 MB model indirme — App Group'a yaz, SHA-256 doğrula
+    /// Yarım kalan indirme çökmeye yol açmaz.
+    static func downloadIfNeeded() async {
+        // İndirme durumu App Group'ta saklanır
+        guard !UserDefaults(suiteName: "group.app.zihin")?.bool(forKey: "advancedModelDownloaded") == true else { return }
+
+        // Bu URL gerçek deploy'da değiştirilecek
+        let modelURL = URL(string: "https://example.com/Embedder.mlmodelc.zip")!
+        let vocabURL = URL(string: "https://example.com/vocab.txt")!
+
+        do {
+            // 1) Geçici dizine indir
+            let tmpDir = FileManager.default.temporaryDirectory.appendingPathComponent("zihin_model_download")
+            try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+
+            let (_, modelResponse) = try await URLSession.shared.download(from: modelURL)
+            let (_, vocabResponse) = try await URLSession.shared.download(from: vocabURL)
+
+            // 2) SHA-256 doğrula
+            let modelSHA = try sha256(from: modelResponse)
+            let vocabSHA = try sha256(from: vocabResponse)
+            // Gerçek SHA değerler deploy'da gelecek
+            let expectedModelSHA = "expected-model-sha-here"
+            let expectedVocabSHA = "expected-vocab-sha-here"
+            guard modelSHA == expectedModelSHA, vocabSHA == expectedVocabSHA else {
+                throw DownloadError.shaMismatch
+            }
+
+            // 3) App Group'a taşı
+            guard let container = FileManager.default
+                .containerURL(forSecurityApplicationGroupIdentifier: "group.app.zihin") else {
+                throw DownloadError.noContainer
+            }
+            let destDir = container.appendingPathComponent("models", isDirectory: true)
+            try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
+
+            try FileManager.default.moveItem(at: modelResponse, to: destDir.appendingPathComponent("Embedder.mlmodelc"))
+            try FileManager.default.moveItem(at: vocabResponse, to: destDir.appendingPathComponent("vocab.txt"))
+
+            // 4) Başarı bayrağı
+            UserDefaults(suiteName: "group.app.zihin")?.set(true, forKey: "advancedModelDownloaded")
+
+            // 5) Model değişti → reindex tetikle
+            // EnrichmentQueue bunu algılayacak (model mismatch)
+
+        } catch {
+            // Yarım kalan geçici dosyaları temizle
+            try? FileManager.default.removeItem(at: tmpDir)
+            print("[AdvancedModelDownloader] İndirme başarısız: \(error)")
+        }
+    }
+
+    private enum DownloadError: Error {
+        case shaMismatch
+        case noContainer
+    }
+
+    private static func sha256(from url: URL) throws -> String {
+        let data = try Data(contentsOf: url)
+        var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+        data.withUnsafeBytes {
+            _ = CC_SHA256($0.baseAddress, CC_LONG(data.count), &hash)
+        }
+        return hash.map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+import CommonCrypto

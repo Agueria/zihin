@@ -6,6 +6,7 @@ struct DetailRouter: View {
     let itemId: String
     @State private var item: Item?
     @State private var tags: [String] = []
+    @State private var showingEdit = false
     private let repo = ItemRepository()
 
     var body: some View {
@@ -29,7 +30,48 @@ struct DetailRouter: View {
             item = try? repo.item(id: itemId)
             tags = (try? repo.tags(for: itemId)) ?? []
         }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showingEdit = true
+                } label: {
+                    Image(systemName: "pencil")
+                }
+                .disabled(item?.type == .image || item?.type == .video)
+            }
+        }
+        .confirmationDialog(
+            "Bu kaydı silmek istediğine emin misin?",
+            isPresented: Binding(
+                get: { showingDelete },
+                set: { showingDelete = $0 }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Sil", role: .destructive) {
+                try? repo.db.write { d in
+                    try Item.filter(key: itemId).destroyAll(d)
+                }
+            }
+        }
+        .sheet(isPresented: $showingEdit) {
+            if let item {
+                EditNoteSheet(item: item, onSave: { updated in
+                    do {
+                        try IngestionService.updateContent(
+                            itemId: updated.id,
+                            title: updated.title,
+                            text: updated.textContent
+                        )
+                    } catch {
+                        print("[Detail] Güncelleme hatası: \(error)")
+                    }
+                })
+            }
+        }
     }
+
+    @State private var showingDelete = false
 }
 
 /// Ortak üst blok: tarih · kaynak eyebrow + etiket çipleri.

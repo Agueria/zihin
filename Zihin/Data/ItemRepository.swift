@@ -155,13 +155,16 @@ struct ItemRepository: Sendable {
         }
     }
 
-    /// Knowledge graph (E2): >= minShared ortak etikete sahip item çiftleri.
-    func sharedTagPairs(minShared: Int = 2) throws -> [(a: String, b: String, shared: Int)] {
+    /// Knowledge graph (F3): topic tipli etiket üzerinden ortak konu çiftleri.
+    /// §4.6: minShared=1 — tek ortak konu gerçek bağdır.
+    /// Yalnız topic tipli etiketler kullanılır (renk keyword değil).
+    func sharedTagPairs(minShared: Int = 1) throws -> [(a: String, b: String, shared: Int)] {
         try db.read { d in
             let rows = try Row.fetchAll(d, sql: """
                 SELECT t1.itemId AS a, t2.itemId AS b, COUNT(*) AS c
                 FROM item_tag t1
                 JOIN item_tag t2 ON t1.tagId = t2.tagId AND t1.itemId < t2.itemId
+                JOIN tag ON tag.id = t1.tagId AND tag.kind = 'topic'
                 GROUP BY t1.itemId, t2.itemId
                 HAVING c >= ?
                 LIMIT 2000

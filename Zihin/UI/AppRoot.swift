@@ -29,6 +29,8 @@ struct ZihinApp: App {
 
     @MainActor
     private func refresh() async {
+        // F2: çekirdek taksonomiyi yükle (yoksa ekle)
+        TaxonomyService.seedTopicsIfNeeded()
         store.reload()
         await EnrichmentQueue.shared.run()
         store.reload()

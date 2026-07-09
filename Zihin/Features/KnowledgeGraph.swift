@@ -67,8 +67,8 @@ enum KnowledgeGraph {
         try ItemRepository().profileNodes()
     }
 
-    // MARK: F3: Bağlantı önerisi (kNN, §4.6)
-    static func suggestConnections(for nodeId: String, k: Int = 3) throws -> [GraphEdge] {
+    // MARK: F3: Bağlantı önerisi (kNN, §4.6) — batchId ile kalıcıleştirilebilir
+    static func suggestConnections(for nodeId: String, k: Int = 3, corpusMean: [Float]?) throws -> [GraphEdge] {
         let repo = ItemRepository()
         guard let item = try repo.item(id: nodeId),
               let embedding = item.embedding,
@@ -76,16 +76,33 @@ enum KnowledgeGraph {
             return []
         }
 
+        let cm = corpusMean ?? [Float](repeating: 0, count: 512)
         let all = (try? repo.allEmbeddings()) ?? []
+
+        // F0: merkezlenmiş cosine
         let candidates = all
             .filter { $0.id != nodeId }
-            .map { (id: $0.id, sim: VectorStore.cosine(vec, $0.vec)) }
+            .compactMap { entry -> (id: String, sim: Double)? in
+                let centeredItem = CorpusCentering.center(vector: entry.vec, mean: cm) ?? entry.vec
+                let centeredSelf = CorpusCentering.center(vector: vec, mean: cm) ?? vec
+                guard let s = CorpusCentering.cosine(centeredSelf, centeredItem) else { return nil }
+                return (entry.id, s)
+            }
             .filter { $0.sim > 0.3 }
             .sorted { $0.sim > $1.sim }
             .prefix(k)
 
         return candidates.map {
             GraphEdge(a: nodeId, b: $0.id, weight: Double($0.sim), kind: .semantic)
+        }
+    }
+
+    /// F3: Önerilen kenarları kaydet — batchId ile toplu geri alınabilir
+    static func saveSuggestedEdges(_ edges: [GraphEdge], batchId: String) throws {
+        for edge in edges {
+            let (lo, hi) = edge.a < edge.b ? (edge.a, edge.b) : (edge.b, edge.a)
+            var me = ManualEdge(aKey: lo, bKey: hi, origin: "suggested", batchId: batchId)
+            try ItemRepository().saveManualEdge(me)
         }
     }
 
@@ -140,9 +157,7 @@ enum KnowledgeGraph {
         }
 
         // 4) Etiket bağları (topic üzerinden, minShared=1 — tek ortak konu gerçek bağ)
-        // F3: minShared 2'den 1'e düşer
         for pair in try repo.sharedTagPairs(minShared: 1) {
-            // Sadece topic tipli etiketleri dikkate al
             let key = pair.a < pair.b ? "\(pair.a)|\(pair.b)" : "\(pair.b)|\(pair.a)"
             guard seen.insert(key).inserted else { continue }
             edges.append(GraphEdge(a: pair.a, b: pair.b,
@@ -162,7 +177,7 @@ enum KnowledgeGraph {
         let isolatedCount = isolated.count
         nodes.removeAll { $0.degree == 0 }
 
-        // 7) Force-directed yerleşim (F3: ana thread DIŞINA taşındı)
+        // 7) Force-directed yerleşim (F3: pinned düğümleri hareket ettirme)
         layout(&nodes, edges: edges)
 
         // 8) Bağlantı önerileri
@@ -202,6 +217,18 @@ enum KnowledgeGraph {
             nodes[i].y = 0.5 + 0.4 * sin(a)
         }
 
+        // F3: pinned düğümlerin başlangıç pozisyonlarını geri yükle
+        let pinnedSet = Set(nodes.filter { $0.pinned }.map(\.id))
+        for i in 0..<n {
+            if pinnedSet.contains(nodes[i].id),
+               let pos = try? ItemRepository().db.read { d in
+                   GraphPosition.filter(Column("nodeKey") == nodes[i].id).fetchOne(d)
+               }, let p = pos {
+                nodes[i].x = p.x
+                nodes[i].y = p.y
+            }
+        }
+
         let k = 1.0 / (Double(n).squareRoot() * 1.2)
         var temp = 0.1
         for _ in 0..<iterations {
@@ -230,8 +257,9 @@ enum KnowledgeGraph {
                 dx[i] -= vx / d * f; dy[i] -= vy / d * f
                 dx[j] += vx / d * f; dy[j] += vy / d * f
             }
-            // Uygula (soğutmalı) + çerçevede tut
+            // Uygula (soğutmalı) + çerçevede tut — pinned düğümleri ATLA
             for i in 0..<n {
+                guard !pinnedSet.contains(nodes[i].id) else { continue }
                 let disp = max(1e-9, (dx[i] * dx[i] + dy[i] * dy[i]).squareRoot())
                 let lim = min(disp, temp)
                 nodes[i].x = min(0.97, max(0.03, nodes[i].x + dx[i] / disp * lim))

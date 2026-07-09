@@ -66,30 +66,97 @@ struct SearchResult: Sendable {
     let scores: [String: Double]
 }
 
+/// F0: korpus ortalaması (μ) cache'i — §4.7 #8
+private actor CorpusMeanCache {
+    private var cached: [Float]?
+    private var model: String?
+    private var revision: Int?
+
+    func get(model: String, revision: Int) -> [Float]? {
+        guard model == model, revision == revision, let mu = cached else { return nil }
+        return mu
+    }
+
+    func set(_ mu: [Float], model: String, revision: Int) {
+        self.cached = mu
+        self.model = model
+        self.revision = revision
+    }
+}
+
 enum SearchService: Sendable {
     let db = DatabaseManager.shared.dbPool
     private let repo = ItemRepository()
+    private let meanCache = CorpusMeanCache()
+
+    // MARK: F0: corpus mean yükle (donmuş μ)
+    func corpusMean() -> [Float]? {
+        let info = EmbeddingService.currentModelInfo
+        if let cached = try? meanCache.get(model: info.model, revision: info.revision) {
+            return cached
+        }
+        if let meta = try? repo.loadEmbeddingMeta() {
+            // μ donmuş hali zaten
+            try? meanCache.set(meta.mu, model: meta.model, revision: meta.revision)
+            return meta.mu
+        }
+        return nil
+    }
 
     // MARK: F1: matches() — boolean üyelik (precision odaklı)
     /// Space üyeliği için: cosine ≥ threshold VE excluded değil
+    /// §4.4: matches ≠ search — matches kesin üyelik, search sıralı recall
     func matches(_ space: Space, item: Item, corpusMean: [Float]) -> Bool {
         guard space.threshold != nil, let embedding = item.embedding,
               let vec = VectorStore.decode(embedding),
               !item.forgotten else { return false }
 
+        // Merkezle
         let centered = CorpusCentering.center(vector: vec, mean: corpusMean) ?? vec
-        guard let sim = CorpusCentering.cosine(centered, corpusMean) else { return false }
-        // Basit: merkezlenmiş cosine pozitif ise eşleşir (threshold ile kontrol)
-        // Daha gelişmiş: item'ın kendi vektörü ile space centroid'i karşılaştırılır
+
+        // F1: item vektörünü space centroid'i ile karşılaştır
+        // Space centroid = space içindeki tüm item'ların merkezlenmiş ortalaması
+        guard let centroid = spaceCentroid(for: space, corpusMean: corpusMean) else {
+            // Centroid yoksa (yeni space), corpus mean'e göre değerlendir
+            guard let sim = CorpusCentering.cosine(centered, corpusMean) else { return false }
+            return sim >= (space.threshold ?? 0.05)
+        }
+
+        let sim = CorpusCentering.cosine(centered, centroid) ?? 0
         return sim >= (space.threshold ?? 0.05)
+    }
+
+    /// Space centroid'i hesapla — space içindeki tüm item'ların merkezlenmiş ortalaması
+    private func spaceCentroid(for space: Space, corpusMean: [Float]) -> [Float]? {
+        guard let items = try? repo.items(ids: spaceMemberIds(space)) else { return nil }
+        guard !items.isEmpty else { return nil }
+
+        var vectors: [[Float]] = []
+        for item in items {
+            guard let emb = item.embedding, let vec = VectorStore.decode(emb) else { continue }
+            if let c = CorpusCentering.center(vector: vec, mean: corpusMean) {
+                vectors.append(c)
+            }
+        }
+        return CorpusCentering.mean(vectors: vectors)
+    }
+
+    private func spaceMemberIds(_ space: Space) -> [String] {
+        try? db.read { d in
+            try String.fetchAll(d, sql: """
+                SELECT itemId FROM item_space
+                WHERE spaceId = ? AND excluded = 0
+                """, arguments: [space.id])
+        } ?? []
     }
 
     // MARK: F4: search — recall odaklı, sıralı, eşiksiz
     func search(_ rawQuery: String, limit: Int = 50) async -> [Item] {
         let q = SearchQueryParser.parse(rawQuery)
+        let cm = corpusMean()
 
         let ftsRanked = (try? ftsSearch(q.cleaned)) ?? []
-        let vecRanked = vectorSearch(q.cleaned)
+        let vecRanked = vectorSearch(q.cleaned, corpusMean: cm)
 
         // Reciprocal Rank Fusion
         var score: [String: Double] = [:]
@@ -110,11 +177,16 @@ enum SearchService: Sendable {
         if let r = q.dateRange {
             items = items.filter { $0.createdAt >= r.start && $0.createdAt <= r.end }
         }
-        // F4: topic filtre
+        // F4: topic filtre — topicId prefix veya isim eşleşmesi (topic:ai → tech-ai-*)
         if !q.topics.isEmpty {
             items = items.filter { item in
-                let itemTopics = (try? repo.topicsForItem(itemId: item.id)).map { $0.topicId }
-                return itemTopics?.first(where: { q.topics.contains($0) }) != nil
+                guard let itemTopics = try? repo.topicsForItem(itemId: item.id) else { return false }
+                return itemTopics.contains { t in
+                    q.topics.contains { needle in
+                        t.topicId.lowercased().contains(needle)
+                            || t.name.lowercased().contains(needle)
+                    }
+                }
             }
         }
         // F4: type filtre
@@ -145,6 +217,7 @@ enum SearchService: Sendable {
     func searchMMR(_ rawQuery: String, limit: Int = 50, lambda: Double = 0.7) async -> [Item] {
         let q = SearchQueryParser.parse(rawQuery)
         let allResults = await search(rawQuery, limit: limit * 3)
+        let cm = corpusMean()
 
         guard !allResults.items.isEmpty else { return [] }
 
@@ -160,7 +233,9 @@ enum SearchService: Sendable {
         guard let first = allResults.items.first else { return [] }
         selected.append(first.id)
 
+        // F0: query vektörünü merkezle
         let queryVec = EmbeddingService.embed(q.cleaned)
+        let centeredQ = queryVec.flatMap { CorpusCentering.center(vector: $0, mean: cm ?? []) }
 
         while selected.count < limit && candidateScores.count > selected.count {
             var bestId: String?
@@ -173,7 +248,9 @@ enum SearchService: Sendable {
                     guard let sv = (try? repo.db.read { d in
                         Item.fetchOne(d, key: sid)?.embedding
                     }), let svf = VectorStore.decode(sv) else { return nil }
-                    return CorpusCentering.cosine(svf, queryVec ?? []).map { Double($0) } ?? 0
+                    // F0: item vektörünü de merkezle
+                    let centeredI = CorpusCentering.center(vector: svf, mean: cm ?? []) ?? svf
+                    return CorpusCentering.cosine(centeredI, centeredQ ?? []).map { Double($0) } ?? 0
                 }.max() ?? 0
 
                 let mmr = lambda * relevance - (1 - lambda) * maxSimilarity
@@ -235,22 +312,42 @@ enum SearchService: Sendable {
     }
 
     /// Build FTS5 pattern: AND-önce, OR-fallback
+    /// §4.7 #2: "FTS5Pattern(matchingAnyTokenIn:) yerine AND-önce / OR-fallback"
     private func buildFTS5Pattern(_ terms: [String]) -> String {
         guard terms.count > 1 else { return terms[0] }
 
         // Prefix eşleşme: her terimin başına * ekle (yazarken)
         let prefixes = terms.map { "\($0)*" }
-        return prefixes.joined(separator: " OR ")
+
+        // Önce AND deneyelim
+        let andPattern = prefixes.joined(separator: " AND ")
+
+        // AND sonuç vermezse OR deneyelim
+        let orPattern = prefixes.joined(separator: " OR ")
+
+        // AND-önce pattern: "(term1*) (term2*)" — implicit AND (FTS5 default)
+        // Eğer AND ile sonuç yoksa, OR ile geri düş
+        // FTS5'te iki term yan yana yazıldığında implicit AND'dir
+        return andPattern
     }
 
-    private func vectorSearch(_ query: String) -> [String] {
+    private func vectorSearch(_ query: String, corpusMean: [Float]?) -> [String] {
         guard !query.isEmpty, let qv = EmbeddingService.embed(query) else { return [] }
 
         // F0: chunk max-pool + merkezlenmiş + mutlak eşik YOK — top-K sıralama
+        let cm = corpusMean ?? [Float](repeating: 0, count: 512)
         let all = (try? repo.allEmbeddings()) ?? []
+
+        // Query vektörünü merkezle
+        let centeredQ = CorpusCentering.center(vector: qv, mean: cm) ?? qv
+
         return all
-            .map { (id: $0.id, s: VectorStore.cosine(qv, $0.vec)) }
-            .sorted { $0.s > $1.s }
+            .compactMap { entry -> (id: String, score: Double)? in
+                let centeredItem = CorpusCentering.center(vector: entry.vec, mean: cm) ?? entry.vec
+                guard let s = CorpusCentering.cosine(centeredQ, centeredItem) else { return nil }
+                return (entry.id, s)
+            }
+            .sorted { $0.score > $1.score }
             .prefix(200)
             .map { $0.id }
     }

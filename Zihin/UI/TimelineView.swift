@@ -277,6 +277,7 @@ struct NewNoteSheet: View {
 
 /// F1: Düzenleme sayfası
 struct EditNoteSheet: View {
+    @Environment(\.dismiss) private var dismiss
     let item: Item
     @State private var title: String
     @State private var text: String
@@ -292,7 +293,7 @@ struct EditNoteSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Başlık", text: $title)
+                TextField("Başlık (opsiyonel)", text: $title)
                 TextEditor(text: $text)
                     .fontDesign(.serif)
                     .scrollContentBackground(.hidden)
@@ -304,12 +305,26 @@ struct EditNoteSheet: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Kaydet") {
-                        try? IngestionService.updateContent(itemId: item.id, title: title, text: text)
-                        onSave(item)
+                        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                        do {
+                            try IngestionService.updateContent(
+                                itemId: item.id,
+                                title: trimmedTitle.isEmpty ? nil : trimmedTitle,
+                                text: trimmedText.isEmpty ? nil : trimmedText
+                            )
+                        } catch {
+                            print("[Edit] Güncelleme hatası: \(error)")
+                        }
+                        var updated = item
+                        updated.title = trimmedTitle.isEmpty ? nil : trimmedTitle
+                        updated.textContent = trimmedText.isEmpty ? nil : trimmedText
+                        onSave(updated)
+                        dismiss()
                     }
                 }
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("İptal") { /* dismiss */ }
+                    Button("İptal", role: .cancel) { dismiss() }
                 }
             }
         }

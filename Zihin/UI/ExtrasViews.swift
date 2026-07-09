@@ -164,6 +164,29 @@ struct SettingsView: View {
                     Text("Tüm kayıtların embedding'leri sıfırlanır ve yeniden üretilir. Bu işlem uzun sürebilir.")
                 }
 
+                Section("Gelişmiş model") {
+                    Text("~80 MB contrastive encoder modeli — daha iyi ayrışma, merkezlemeye ihtiyaç duymaz.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Button {
+                        reindexing = true
+                        Task {
+                            await AdvancedModelDownloader.downloadIfNeeded()
+                            reindexing = false
+                        }
+                    } label: {
+                        HStack {
+                            Label("Gelişmiş modeli indir", systemImage: "arrow.down.circle")
+                            if reindexing { Spacer(); ProgressView() }
+                        }
+                    }
+                    .disabled(reindexing)
+                } header: {
+                    Text("Model ayarları")
+                } footer: {
+                    Text("Model değiştiğinde tüm kayıtlar otomatik olarak yeniden işlenir. İndirme sırasında internet bağlantısı gerekir.")
+                }
+
                 Section {
                     Button {
                         showFolderPicker = true
