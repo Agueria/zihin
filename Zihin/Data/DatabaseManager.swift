@@ -33,6 +33,8 @@ final class DatabaseManager: Sendable {
 
     private static var migrator: DatabaseMigrator {
         var m = DatabaseMigrator()
+
+        // === v1: temel tablolar ===
         m.registerMigration("v1") { db in
             try db.create(table: "item") { t in
                 t.column("id", .text).primaryKey()
@@ -104,6 +106,111 @@ final class DatabaseManager: Sendable {
                 t.tokenizer = .unicode61(diacritics: .removeLegacy)
             }
         }
+
+        // === v2: anlam katmanı, space kuralları, kavram grafiği ===
+        m.registerMigration("v2") { db in
+            // --- item: model versiyonlama, lemma ---
+            try db.alter(table: "item") { t in
+                t.addColumn("embeddingModel").to(.text).optional()
+                t.addColumn("embeddingRevision").to(.integer).optional()
+                t.addColumn("lemmaText").to(.text).optional()
+            }
+
+            // --- item_chunk: parçalı embedding'ler ---
+            try db.create(table: "item_chunk") { t in
+                t.column("itemId", .text).notNull().references("item", onDelete: .cascade)
+                t.column("idx", .integer).notNull()
+                t.column("vector", .blob).notNull()
+                t.primaryKey(["itemId", "idx"])
+            }
+
+            // --- tag: tip ---
+            try db.alter(table: "tag") { t in
+                t.addColumn("kind").to(.text).notNull().defaults(to: "keyword")
+            }
+
+            // --- topic taksonomisi ---
+            try db.create(table: "topic") { t in
+                t.column("id", .text).primaryKey()
+                t.column("name", .text).notNull()
+                t.column("parentId", .text).references("topic", onDelete: .cascade).optional()
+                t.column("isCore", .boolean).notNull().defaults(to: true)
+                t.column("createdAt", .datetime).notNull()
+            }
+            try db.create(table: "topic_phrase") { t in
+                t.column("topicId", .text).notNull().references("topic", onDelete: .cascade)
+                t.column("phrase", .text).notNull()
+            }
+            try db.create(table: "item_topic") { t in
+                t.column("itemId", .text).notNull().references("item", onDelete: .cascade)
+                t.column("topicId", .text).notNull().references("topic", onDelete: .cascade)
+                t.column("score", .real).notNull()
+                t.column("source", .text).notNull()
+                t.primaryKey(["itemId", "topicId"])
+            }
+
+            // --- space üyelik zenginleştirme ---
+            try db.alter(table: "item_space") { t in
+                t.addColumn("source").to(.text).notNull().defaults(to: "manual")
+                t.addColumn("excluded").to(.boolean).notNull().defaults(to: false)
+            }
+            try db.alter(table: "space") { t in
+                t.addColumn("rule").to(.text).optional()
+                t.addColumn("threshold").to(.double).optional()
+            }
+
+            // --- kavram grafiği ---
+            try db.create(table: "graph_position") { t in
+                t.column("id", .text).primaryKey()
+                t.column("nodeKey", .text).notNull().unique()
+                t.column("x", .real).notNull().defaults(to: 0)
+                t.column("y", .real).notNull().defaults(to: 0)
+                t.column("pinned", .boolean).notNull().defaults(to: false)
+            }
+            try db.create(table: "manual_edge") { t in
+                t.column("id", .text).primaryKey()
+                t.column("aKey", .text).notNull()
+                t.column("bKey", .text).notNull()
+                t.column("origin", .text).notNull()
+                t.column("batchId", .text).optional()
+                t.column("createdAt", .datetime).notNull()
+                t.uniqueKey(["aKey", "bKey"])
+            }
+            try db.create(table: "profile_node") { t in
+                t.column("id", .text).primaryKey()
+                t.column("name", .text).notNull()
+            }
+            try db.create(table: "profile_topic") { t in
+                t.column("profileId", .text).notNull().references("profile_node", onDelete: .cascade)
+                t.column("topicId", .text).notNull().references("topic", onDelete: .cascade)
+                t.primaryKey(["profileId", "topicId"])
+            }
+
+            // --- embedding_meta: korpus ortalaması + model bilgisi ---
+            try db.create(table: "embedding_meta") { t in
+                t.column("key", .text).primaryKey()
+                t.column("vector", .blob).notNull()     // donmuş μ
+                t.column("count", .integer).notNull()    // birikim sayaç
+                t.column("model", .text).notNull()
+                t.column("revision", .integer).notNull()
+            }
+
+            // --- item_fts: lemma kolonu + bm25 ağırlıkları ---
+            // GRDB FTS5 synchronize ile tabloyu yeniden oluşturmak için drop+create gerekir
+            try db.execute(sql: "DROP TABLE IF EXISTS item_fts")
+            try db.create(virtualTable: "item_fts", using: FTS5()) { t in
+                t.synchronize(withTable: "item")
+                t.column("title", weight: 10.0)
+                t.column("summary", weight: 5.0)
+                t.column("textContent", weight: 1.0)
+                t.column("transcript", weight: 0.5)
+                t.column("ocrText", weight: 0.3)
+                t.column("frameText", weight: 0.3)
+                t.column("lemmaText")
+                t.tokenizer = .unicode61(diacritics: .removeLegacy)
+            }
+        }
+
         return m
     }
 }

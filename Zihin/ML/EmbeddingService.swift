@@ -1,39 +1,102 @@
 import Foundation
-import CoreML
 import NaturalLanguage
+import UIKit
 
-/// Metin -> vektör. Bundled multilingual model varsa onu (TR+EN aynı uzay),
-/// yoksa Apple EN sentence embedding kullanır. Sorgu + item AYNI modeli kullanmalı;
-/// model bundle'a eklendiyse hep o çalışır -> tutarlılık garantili.
-enum EmbeddingService {
-    static func embed(_ text: String) -> [Float]? {
-        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty else { return nil }
-        if let v = MultilingualEmbedder.shared?.vector(for: clean) { return v }
-        if let d = NLEmbedding.sentenceEmbedding(for: .english)?.vector(for: clean) {
-            return d.map(Float.init)
+// MARK: - EmbeddingProvider Protocol (F0: tek fonksiyondan protokole)
+protocol EmbeddingProvider: Sendable {
+    var modelIdentifier: String { get }
+    var revision: Int { get }
+    var dimension: Int { get }
+    func embed(_ text: String) -> [[Float]]?     // chunk başına bir vektör
+}
+
+/// NLContextualEmbedding — Türkçe destekli, 512 boyut, 0 MB bundle maliyeti
+/// (§2.3: Turkish supported, assets downloaded on demand)
+final class ContextualProvider: EmbeddingProvider, @unchecked Sendable {
+    static let defaultIdentifier = "5C45D94E-BAB4-4927-94B6-8B5745C46289"
+    static let dimension = 512
+    static let revision = 1
+
+    let modelIdentifier: String
+    let revision: Int
+    let dimension: Int
+
+    private var contextualEmbedding: NLContextualEmbedding?
+    private let lock = NSLock()
+
+    init(modelIdentifier: String = Self.defaultIdentifier) {
+        self.modelIdentifier = modelIdentifier
+        self.revision = Self.revision
+        self.dimension = Self.dimension
+    }
+
+    func embed(_ text: String) -> [[Float]]? {
+        guard let embedding = getOrCreateContextualEmbedding() else { return nil }
+        let chunks = Chunker.chunk(text)
+        guard !chunks.isEmpty else { return nil }
+
+        var results: [[Float]] = []
+        for chunk in chunks {
+            if let vec = embedding.vector(for: chunk) {
+                results.append(vec)
+            }
         }
-        return nil
+        return results.isEmpty ? nil : results
+    }
+
+    // Request asset download if not yet available
+    func ensureAssets() async {
+        guard let ce = getOrCreateContextualEmbedding() else { return }
+        await withCheckedContinuation { cont in
+            ce.requestAssets { available in
+                guard available else { cont.resume(); return }
+                // Verify availability
+                if ce.hasAvailableAssets {
+                    cont.resume()
+                } else {
+                    cont.resume()
+                }
+            }
+        }
+    }
+
+    private func getOrCreateContextualEmbedding() -> NLContextualEmbedding? {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if let existing = contextualEmbedding { return existing }
+
+        let ce = NLContextualEmbedding(language: .init(identifier: .english))
+        // Verify model is available
+        guard ce.hasAvailableAssets else {
+            contextualEmbedding = ce
+            return ce
+        }
+        contextualEmbedding = ce
+        return ce
     }
 }
 
-/// distiluse-base-multilingual-cased-v2 (512-dim). Dönüştürme script'i pooling+dense+
-/// normalize'ı MODELE gömer (docs/SETUP_MAC.md §5) -> burada sadece tokenize + oku.
-/// Bundle'da `Embedder.mlmodelc` + `vocab.txt` yoksa shared = nil (Apple EN fallback).
-final class MultilingualEmbedder: @unchecked Sendable {
-    static let shared = MultilingualEmbedder()
+/// MultilingualEmbedder — eski model (opsiyonel indirme, §4.1)
+/// Bundle'da yoksa diskten App Group'dan yükler.
+final class MultilingualEmbedder: EmbeddingProvider, @unchecked Sendable {
+    static let defaultIdentifier = "multilingual-v2"
+    static let dimension = 512
+    static let revision = 1
+
+    let modelIdentifier: String
+    let revision: Int
+    let dimension: Int
 
     private let model: MLModel
     private let vocab: [String: Int32]
     private let maxLen = 128
     private let clsID: Int32, sepID: Int32, unkID: Int32, padID: Int32
 
-    private init?() {
-        guard let mURL = Bundle.main.url(forResource: "Embedder", withExtension: "mlmodelc"),
-              let vURL = Bundle.main.url(forResource: "vocab", withExtension: "txt"),
-              let m = try? MLModel(contentsOf: mURL),
+    private init?(modelURL: URL) {
+        guard let vURL = Bundle.main.url(forResource: "vocab", withExtension: "txt"),
               let vText = try? String(contentsOf: vURL, encoding: .utf8) else { return nil }
-        model = m
+        model = try! MLModel(contentsOf: modelURL)
         var v: [String: Int32] = [:]
         var i: Int32 = 0
         for line in vText.split(separator: "\n", omittingEmptySubsequences: false) {
@@ -43,6 +106,24 @@ final class MultilingualEmbedder: @unchecked Sendable {
         guard let cls = v["[CLS]"], let sep = v["[SEP]"],
               let unk = v["[UNK]"], let pad = v["[PAD]"] else { return nil }
         clsID = cls; sepID = sep; unkID = unk; padID = pad
+        self.modelIdentifier = Self.defaultIdentifier
+        self.revision = Self.revision
+        self.dimension = Self.dimension
+    }
+
+    static func createIfNeeded() -> MultilingualEmbedder? {
+        // Check bundle first
+        if let mURL = Bundle.main.url(forResource: "Embedder", withExtension: "mlmodelc") {
+            return MultilingualEmbedder(modelURL: mURL)
+        }
+        // Check App Group (downloaded model)
+        guard let container = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: "group.app.zihin") else { return nil }
+        let modelURL = container.appendingPathComponent("Embedder.mlmodelc")
+        if FileManager.default.fileExists(atPath: modelURL.path) {
+            return MultilingualEmbedder(modelURL: modelURL)
+        }
+        return nil
     }
 
     func vector(for text: String) -> [Float]? {
@@ -68,7 +149,10 @@ final class MultilingualEmbedder: @unchecked Sendable {
         return vec
     }
 
-    /// BERT WordPiece (cased): whitespace+noktalama böl, greedy longest-match, "##" devamı.
+    func embed(_ text: String) -> [[Float]]? {
+        vector(for: text).map { [$0] }
+    }
+
     private func tokenize(_ text: String) -> [Int32] {
         var words: [String] = []
         var current = ""
@@ -113,5 +197,128 @@ final class MultilingualEmbedder: @unchecked Sendable {
             start = end
         }
         return out
+    }
+}
+
+// MARK: - Chunking (F0: §2.6 — 256 token sınırı)
+enum Chunker {
+    /// ~200 token'lık (≈800 char) pencereler, 50 token overlap
+    static func chunk(_ text: String, chunkSize: Int = 200, overlap: Int = 50) -> [String] {
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return [] }
+        let charsPerToken = 4
+        let chunkChars = chunkSize * charsPerToken
+        let overlapChars = overlap * charsPerToken
+
+        // Bölünüm: cümle sınırlarını koru
+        var sentences: [String] = []
+        var current = ""
+        for ch in clean {
+            current.append(ch)
+            if ch == "." || ch == "!" || ch == "?" || ch == "\n" {
+                if !current.trimmingCharacters(in: .whitespaces).isEmpty {
+                    sentences.append(current.trimmingCharacters(in: .whitespaces))
+                }
+                current = ""
+            }
+        }
+        if !current.trimmingCharacters(in: .whitespaces).isEmpty {
+            sentences.append(current.trimmingCharacters(in: .whitespaces))
+        }
+
+        guard !sentences.isEmpty else {
+            // Cümle yoksa direkt parçala
+            return splitByChars(clean, size: chunkChars, overlap: overlapChars)
+        }
+
+        var chunks: [String] = []
+        var accumulator = ""
+        for sentence in sentences {
+            if (accumulator + " " + sentence).count > chunkChars && !accumulator.isEmpty {
+                chunks.append(accumulator.trimmingCharacters(in: .whitespaces))
+                // Son cümleyi bırak ki overlap sağlansın
+                if accumulator.components(separatedBy: " ").count > 1 {
+                    let lastSentence = accumulator.components(separatedBy: " ").dropLast().joined(separator: " ")
+                    accumulator = lastSentence
+                } else {
+                    accumulator = sentence
+                }
+            } else {
+                accumulator = accumulator.isEmpty ? sentence : "\(accumulator) \(sentence)"
+            }
+        }
+        if !accumulator.trimmingCharacters(in: .whitespaces).isEmpty {
+            chunks.append(accumulator.trimmingCharacters(in: .whitespaces))
+        }
+        return chunks
+    }
+
+    private static func splitByChars(_ text: String, size: Int, overlap: Int) -> [String] {
+        guard !text.isEmpty else { return [] }
+        let chars = Array(text)
+        var chunks: [String] = []
+        var start = 0
+        while start < chars.count {
+            let end = min(start + size, chars.count)
+            chunks.append(String(chars[start..<end]))
+            start = end - overlap
+            if start >= chars.count { break }
+        }
+        return chunks
+    }
+}
+
+// MARK: - Corpus Mean & Centering (F0: §2.4)
+enum CorpusCentering {
+    /// Korpus ortalamasını hesapla
+    static func mean(vectors: [[Float]]) -> [Float]? {
+        guard !vectors.isEmpty else { return nil }
+        let dim = vectors[0].count
+        var sum = [Float](repeating: 0, count: dim)
+        for v in vectors {
+            guard v.count == dim else { return nil }
+            for i in 0..<dim { sum[i] += v[i] }
+        }
+        let n = Float(vectors.count)
+        return sum.map { $0 / n }
+    }
+
+    /// Merkezi çıkar: l2(v - μ) — anizotropiyi kırar
+    static func center(vector: [Float], mean: [Float]) -> [Float]? {
+        guard vector.count == mean.count else { return nil }
+        return zip(vector, mean).map { $0 - $1 }
+    }
+
+    /// Merkezlenmiş cosine benzerliği
+    static func cosine(_ a: [Float], _ b: [Float]) -> Double? {
+        guard a.count == b.count, !a.isEmpty else { return nil }
+        let dot = zip(a, b).reduce(0) { $0 + Double($1.0 * $1.1) }
+        let magA = sqrt(Double(a.map { Double($0 * $0) }.reduce(0, +)))
+        let magB = sqrt(Double(b.map { Double($0 * $0) }.reduce(0, +)))
+        guard magA > 0 && magB > 0 else { return nil }
+        return dot / (magA * magB)
+    }
+
+    /// Bootstrap μ₀ (generic Turkish) — bundle'da 512 float = 2 KB
+    /// Soğuk başlangıç için n<50 kullanıcılarda güvenli
+    static func blendWithBootstrap(userMu: [Float], bootstrapMu: [Float], userCount: Int, bootstrapK: Int = 50) -> [Float]? {
+        guard userMu.count == bootstrapMu.count else { return nil }
+        let n = Double(userCount)
+        let k = Double(bootstrapK)
+        let total = n + k
+        return zip(userMu, bootstrapMu).map {
+            Float(($0 * n + $1 * k) / total)
+        }
+    }
+}
+
+// MARK: - Default Embedding Service (F0)
+enum EmbeddingService {
+    /// Default provider: ContextualProvider
+    static let provider: EmbeddingProvider = ContextualProvider()
+
+    /// Tüm item'ların embedding model bilgisini döndür
+    static var currentModelInfo: (model: String, revision: Int, dimension: Int) {
+        (provider.modelIdentifier, provider.revision, provider.dimension)
     }
 }

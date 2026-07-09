@@ -1,0 +1,120 @@
+{
+  "version": "2.0",
+  "description": "Çekirdek taksonomi — küratörlü, hiyerarşik, prototip ifadelerle",
+  "topics": [
+    {
+      "id": "tech",
+      "name": "Teknoloji",
+      "parentId": null,
+      "children": [
+        {
+          "id": "tech-ai",
+          "name": "Yapay Zekâ",
+          "parentId": "tech",
+          "children": [
+            { "id": "tech-ai-lang-models", "name": "Dil Modelleri", "parentId": "tech-ai", "phrases": ["llm", "dil modeli", "gpt", "claude", "chatgpt", "openai", "openai api", "llm", "large language model"] },
+            { "id": "tech-ai-ml", "name": "Makine Öğrenmesi", "parentId": "tech-ai", "phrases": ["machine learning", "ml", "makine öğrenmesi", "training", "eğitim", "model"] },
+            { "id": "tech-ai-nlp", "name": "Doğal Dil İşleme", "parentId": "tech-ai", "phrases": ["nlp", "natural language processing", "token", "embedding", "transformer"] },
+            { "id": "tech-ai-llm-apps", "name": "LLM Uygulamaları", "parentId": "tech-ai", "phrases": ["rag", "prompt", "prompt engineering", "agentic", "autonomous agent", "tool use", "function calling"] },
+            { "id": "tech-ai-vision", "name": "Görüntü İşleme", "parentId": "tech-ai", "phrases": ["computer vision", "cv", "image recognition", "image classification", "ocr"] }
+          ]
+        },
+        {
+          "id": "tech-dev",
+          "name": "Yazılım Geliştirme",
+          "parentId": "tech",
+          "children": [
+            { "id": "tech-dev-swift", "name": "Swift / iOS", "parentId": "tech-dev", "phrases": ["swift", "ios", "xcode", "swiftui", "combine", "grdb", "sqlite", "coredata"] },
+            { "id": "tech-dev-python", "name": "Python", "parentId": "tech-dev", "phrases": ["python", "pytorch", "tensorflow", "jupyter", "numpy", "pandas"] },
+            { "id": "tech-dev-web", "name": "Web Geliştirme", "parentId": "tech-dev", "phrases": ["javascript", "typescript", "react", "next.js", "node.js", "frontend", "backend", "api", "rest", "graphql", "html", "css"] },
+            { "id": "tech-dev-database", "name": "Veritabanı", "parentId": "tech-dev", "phrases": ["database", "sql", "nosql", "postgres", "postgresql", "mysql", "mongodb", "redis", "caching"] },
+            { "id": "tech-dev-devops", "name": "DevOps", "parentId": "tech-dev", "phrases": ["docker", "kubernetes", "ci/cd", "github actions", "deployment", "infrastructure", "terraform"] },
+            { "id": "tech-dev-testing", "name": "Test", "parentId": "tech-dev", "phrases": ["testing", "unit test", "integration test", "e2e", "tdd", "bdd", "pytest", "vitest", "jest"] }
+          ]
+        },
+        {
+          "id": "tech-cloud",
+          "name": "Bulut & Altyapı",
+          "parentId": "tech",
+          "children": [
+            { "id": "tech-cloud-aws", "name": "AWS", "parentId": "tech-cloud", "phrases": ["aws", "amazon web services", "s3", "ec2", "lambda", "dynamodb", "cloudfront"] },
+            { "id": "tech-cloud-gcp", "name": "Google Cloud", "parentId": "tech-cloud", "phrases": ["gcp", "google cloud", "firebase", "vertex ai"] },
+            { "id": "tech-cloud-azure", "name": "Azure", "parentId": "tech-cloud", "phrases": ["azure", "microsoft azure", "azure functions", "azure devops"] }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "design",
+      "name": "Tasarım",
+      "parentId": null,
+      "children": [
+        { "id": "design-ui", "name": "UI / UX Tasarım", "parentId": "design", "phrases": ["ui", "ux", "user interface", "user experience", "design system", "component", "wireframe", "prototype"] },
+        { "id": "design-color", "name": "Renk Teorisi", "parentId": "design", "phrases": ["color theory", "palette", "color scheme", "hue", "saturation", "contrast"] },
+        { "id": "design-typography", "name": "Tipografi", "parentId": "design", "phrases": ["typography", "font", "typeface", "serif", "sans-serif", "line-height", "kerning"] }
+      ]
+    },
+    {
+      "id": "science",
+      "name": "Bilim",
+      "parentId": null,
+      "children": [
+        { "id": "science-physics", "name": "Fizik", "parentId": "science", "phrases": ["fizik", "physics", "quantum", "relativity", "thermodynamics", "particle", "gravity"] },
+        { "id": "science-math", "name": "Matematik", "parentId": "science", "phrases": ["matematik", "math", "calculus", "algebra", "statistics", "probability", "linear algebra"] },
+        { "id": "science-bio", "name": "Biyoloji", "parentId": "science", "phrases": ["biyoloji", "biology", "genetics", "dna", "evolution", "cell", "molecular"] }
+      ]
+    },
+    {
+      "id": "business",
+      "name": "İş & Girişimcilik",
+      "parentId": null,
+      "children": [
+        { "id": "biz-startup", "name": "Startup", "parentId": "business", "phrases": ["startup", "girişim", "venture capital", "vc", "seed round", "series a", "mvp", "product market fit"] },
+        { "id": "biz-product", "name": "Ürün Yönetimi", "parentId": "business", "phrases": ["product management", "pricer", "roadmap", "user story", "okrs", "kpi", "metrics"] },
+        { "id": "biz-marketing", "name": "Pazarlama", "parentId": "business", "phrases": ["marketing", "seo", "content marketing", "growth", "funnel", "conversion", "brand"] },
+        { "id": "biz-finance", "name": "Finans", "parentId": "business", "phrases": ["finans", "finance", "investment", "stock", "crypto", "bitcoin", "defi", "portfolio"] }
+      ]
+    },
+    {
+      "id": "life",
+      "name": "Yaşam",
+      "parentId": null,
+      "children": [
+        { "id": "life-health", "name": "Sağlık", "parentId": "life", "phrases": ["sağlık", "health", "fitness", "nutrition", "diet", "exercise", "sleep"] },
+        { "id": "life-food", "name": "Yemek", "parentId": "life", "phrases": ["yemek", "food", "recipe", "cooking", "mutfak", "restaurant", "gourmet"] },
+        { "id": "life-travel", "name": "Seyahat", "parentId": "life", "phrases": ["seyahat", "travel", "vacation", "hotel", "airline", "backpack", "adventure"] },
+        { "id": "life-book", "name": "Kitap", "parentId": "life", "phrases": ["kitap", "book", "reading", "novel", "essay", "fiction", "non-fiction", "author"] },
+        { "id": "life-music", "name": "Müzik", "parentId": "life", "phrases": ["müzik", "music", "song", "album", "concert", "genre", "instrument"] }
+      ]
+    },
+    {
+      "id": "media",
+      "name": "Medya",
+      "parentId": null,
+      "children": [
+        { "id": "media-news", "name": "Gündem", "parentId": "media", "phrases": ["news", "gündem", "politics", "election", "policy"] },
+        { "id": "media-video", "name": "Video", "parentId": "media", "phrases": ["video", "youtube", "podcast", "streaming", "film", "movie", "cinema"] },
+        { "id": "media-photo", "name": "Fotoğraf", "parentId": "media", "phrases": ["fotoğraf", "photography", "camera", "lens", "portrait", "landscape"] }
+      ]
+    },
+    {
+      "id": "tools",
+      "name": "Araçlar",
+      "parentId": null,
+      "children": [
+        { "id": "tools-vscode", "name": "VS Code", "parentId": "tools", "phrases": ["vscode", "visual studio code", "extension", "snippet"] },
+        { "id": "tools-git", "name": "Git", "parentId": "tools", "phrases": ["git", "github", "gitlab", "bitbucket", "commit", "branch", "merge", "pull request", "rebase"] },
+        { "id": "tools-productivity", "name": "Üretkenlik", "parentId": "tools", "phrases": ["productivity", "notion", "obsidian", "roam", "workflow", "automation", "zapier"] }
+      ]
+    },
+    {
+      "id": "language",
+      "name": "Diller",
+      "parentId": null,
+      "children": [
+        { "id": "lang-en", "name": "İngilizce", "parentId": "language", "phrases": ["ingilizce", "english", "grammar", "vocabulary", "pronunciation"] },
+        { "id": "lang-tr", "name": "Türkçe", "parentId": "language", "phrases": ["türkçe", "turkish", "grammar", "vocabulary", "yazım"] }
+      ]
+    }
+  ]
+}
